@@ -34,6 +34,12 @@ class Web(object) :
     def get_all() :
         return [Web(id=row['id'], name=row['web_name'])
                 for row in DB.execute("select id, web_name from webs")]
+    @staticmethod
+    def get_by_id(id) :
+        for row in DB.execute("select id, web_name from webs where id=?", (id,)) :
+            return Web(id=row['id'], name=row['web_name'])
+        return None
+
 
 class UserWebAccess(object) :
     @staticmethod
@@ -46,7 +52,7 @@ class UserWebAccess(object) :
             DB.execute("delete from user_web_access where web_id=? and user_id=?",
                          (web.id, user.id))
     @staticmethod
-    def add_for_user(DB, web, user) :
+    def add_for_user(web, user) :
         with DB :
             DB.execute("insert into user_web_access (web_id, user_id) values (?,?)",
                          (web.id, user.id))
@@ -158,3 +164,23 @@ class Blob(object) :
         with DB :
             DB.execute("insert into blobs (uuid, date_created, editor_email, content_type, content_hash) values (?,?,?,?,?)", (id, int(time.time()), editor.email, content_type, content))
         return Blob.get_by_uuid(id)
+
+class WebBlobAccess(object) :
+#    @staticmethod
+#    def get_for_blob(user) :
+#        return [Web(id=row['id'], name=row['web_name'])
+#                for row in DB.execute('select id, web_name from webs inner join user_web_access on user_web_access.web_id=webs.id where user_web_access.user_id=?', (user.id,))]
+    @staticmethod
+    def can_user_access(user, blob) :
+        r = DB.execute("select blobs.id from blobs inner join blobs_web on blobs.id=blobs_web.blob_id inner join user_web_access on blobs_web.web_id=user_web_access.web_id where blobs.id=? and user_web_access.user_id=?", (blob.id, user.id)).fetchone()
+        return r != None
+    @staticmethod
+    def remove_for_web(web, blob) :
+        with DB :
+            DB.execute("delete from blobs_web where web_id=? and blob_id=?",
+                       (web.id, blob.id))
+    @staticmethod
+    def add_for_blob(web, blob) :
+        with DB :
+            DB.execute("insert into blobs_web (web_id, blob_id) values (?,?)",
+                         (web.id, blob.id))

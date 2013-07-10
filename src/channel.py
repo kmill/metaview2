@@ -6,6 +6,8 @@ import time
 import logging
 logger = logging.getLogger(__name__)
 
+import models
+
 class Channel(object) :
     def __init__(self, channel_id, user, ttl=60*2) :
         self.channel_id = channel_id
@@ -80,3 +82,24 @@ class TextMessage(object) :
         return {"type" : "TextMessage",
                 "args" : {"user" : self.user,
                           "m" : self.m}}
+
+class NewBlobMessage(object) :
+    def __init__(self, blob) :
+        self.blob = blob
+    def appropriate_for(self, user) :
+        return models.WebBlobAccess.can_user_access(user, self.blob)
+    def serialize(self) :
+        return {"type" : "NewBlobMessage",
+                "args" : {"uuid" : self.blob.uuid}}
+
+class WebChangeMessage(object) :
+    def __init__(self, web_id, web_name=None) :
+        """web_name being None represents web deletion."""
+        self.web_id = web_id
+        self.web_name = web_name
+    def appropriate_for(self, user) :
+        return self.web_name == None or self.web_id in [w.id for w in models.UserWebAccess.get_for_user(user)]
+    def serialize(self) :
+        return {"type" : "WebChangeMessage",
+                "args" : {"web_id" : self.web_id,
+                          "web_name" : self.web_name}}

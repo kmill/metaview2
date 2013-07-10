@@ -39,6 +39,7 @@ def random256() :
 
 class MVRequestHandler(web.RequestHandler) :
     def get_current_user(self) :
+        return models.User.get_by_email("kmill31415@gmail.com")
         return models.User.get_by_email(self.get_secure_cookie("user_email"))
 
 class GoogleHandler(MVRequestHandler, tornado.auth.GoogleMixin):
@@ -132,8 +133,8 @@ class RpcHandler(MVRequestHandler) :
             logger.error("No such rpc module %s", module)
             self.finish(minirpc.render_exception(KeyError(module)))
         else :
-            const_args = {"channels" : channels}
-            self.finish(minirpc.handle_request(methods.RPC_MODULES[module](const_args),
+            const_args = {"handler" : self, "channels" : channels}
+            self.finish(minirpc.handle_request(methods.RPC_MODULES[module](**const_args),
                                                getMessage))
 
 class BlobHandler(MVRequestHandler) :
@@ -147,7 +148,7 @@ class BlobHandler(MVRequestHandler) :
         if not blob :
             raise tornado.web.HTTPError(404)
         content = str(blob.content.stuff)
-        if not blob :
+        if not blob or not models.WebBlobAccess.can_user_access(self.current_user, blob) :
             raise tornado.web.HTTPError(404)
         if blob.content_type.startswith("mime:") :
             self.set_header("Content-Type", blob.content_type[len("mime:"):])
@@ -169,6 +170,24 @@ class BlobHandler(MVRequestHandler) :
         self.flush()
         return
 
+class UploadHandler(MVRequestHandler) :
+    @tornado.web.authenticated
+    def post(self, web_id) :
+        web_id = int(web_id)
+        users_webs = models.UserWebAccess.get_for_user(self.current_user)
+        web = [w for w in users_webs if w.id == web_id][0]
+        uuids = []
+        blobs = []
+        for f in self.request.files["files"] :
+            content_type = "mime:" + (f.content_type or "plain/text")
+            c = models.Content.get_by_stuff(buffer(f.body))
+            b = models.Blob.make_blob(self.current_user, content_type, c)
+            blobs.append(b)
+            models.WebBlobAccess.add_for_blob(web, b)
+            uuids.append(b.uuid)
+        self.finish({"uuids" : uuids})
+        channels.broadcast([channel.NewBlobMessage(b) for b in blobs])
+
 class MVApplication(tornado.web.Application) :
     def __init__(self, host_name_override=None) :
         settings = dict(
@@ -187,6 +206,7 @@ class MVApplication(tornado.web.Application) :
             (r"/login", LoginHandler),
             (r"/login/google", GoogleHandler),
             (r"/logout", LogoutHandler),
+            (r"/upload/(\d+)", UploadHandler),
             (r"/ajax/poll", PollHandler),
             (r"/ajax/rpc/(.*)", RpcHandler),
             (r"/blob/(.*)", BlobHandler),
