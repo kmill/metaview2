@@ -83,6 +83,14 @@ class User(object) :
                         first_name=row['first_name'], last_name=row['last_name'],
                         locale=row['locale'])
         return None
+    @staticmethod
+    def get_by_id(id) :
+        for row in DB.execute("select id, email, first_name, last_name, locale from users where id=?", (id,)) :
+            return User(id=row['id'], email=row['email'],
+                        first_name=row['first_name'], last_name=row['last_name'],
+                        locale=row['locale'])
+        return None
+
 
 class Content(object) :
     def __init__(self, hash=None, stuff=None) :
@@ -174,6 +182,10 @@ class WebBlobAccess(object) :
     def can_user_access(user, blob) :
         r = DB.execute("select blobs.id from blobs inner join blobs_web on blobs.id=blobs_web.blob_id inner join user_web_access on blobs_web.web_id=user_web_access.web_id where blobs.id=? and user_web_access.user_id=?", (blob.id, user.id)).fetchone()
         return r != None
+    @staticmethod
+    def users_can_access(blob) :
+        return [User.get_by_id(r['id']) for r in DB.execute("select user_web_access.user_id as id from blobs inner join blobs_web on blobs.id=blobs_web.blob_id inner join user_web_access on blobs_web.web_id=user_web_access.web_id where blobs.id=?", (blob.id,))]
+
     @staticmethod
     def remove_for_web(web, blob) :
         with DB :

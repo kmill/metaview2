@@ -4,7 +4,9 @@
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
 <title>{{ handler.settings["app_title"] }}</title>
 <link rel="stylesheet" href="{{ static_url("style.css") }}" type="text/css" />
-<script type="text/javascript" src="{{ static_url("jquery-1.7.1.min.js") }}"></script>
+<script type="text/javascript" src="{{ static_url("jquery-ui-1.10.3/jquery-1.9.1.js") }}"></script>
+<script type="text/javascript" src="{{ static_url("jquery-ui-1.10.3/ui/jquery-ui.js") }}"></script>
+<script type="text/javascript" src="{{ static_url("underscore-min.js") }}"></script>
 <script type="text/javascript" src="{{ static_url("mv.js") }}"></script>
 </head>
 <body>
@@ -29,6 +31,7 @@
 </form>
 
 <form id="fileupload" method="post" enctype="multipart/form-data" action="/upload">
+  {% module xsrf_form_html() %}
   <input type="file" name="files" multiple />
   <input type="submit" value="Upload"/>
 </form>
@@ -38,6 +41,9 @@
   {% module xsrf_form_html() %}
   <input type="hidden" name="channel_id" value="{{ channel_id }}"/>
 </form>
+
+<div id="inbox">
+</div>
 
 </body>
 </html>

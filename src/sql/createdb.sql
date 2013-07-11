@@ -22,7 +22,8 @@ create table user_web_access (
   web_id integer not null,
   user_id integer not null,
   foreign key(web_id) references webs(id),
-  foreign key(user_id) references users(id)
+  foreign key(user_id) references users(id),
+  unique(web_id, user_id) on conflict ignore
 );
 
 create table content (
@@ -47,7 +48,8 @@ create table blobs_web (
   web_id integer not null,
   blob_id integer not null,
   foreign key(web_id) references webs(id),
-  foreign key(blob_id) references blobs(id)
+  foreign key(blob_id) references blobs(id),
+  unique(web_id, blob_id) on conflict ignore
 );
 
 --- cached
@@ -72,3 +74,17 @@ create table relations (
 );
 
 --- drafts
+
+--- inbox
+
+create table plugin_inbox (
+  user_id integer,
+  blob_id integer,
+  foreign key(user_id) references users(id),
+  foreign key(blob_id) references blobs(id),
+  unique(user_id, blob_id) on conflict ignore
+);
+
+
+--- testing
+insert into users (email) values ("kmill31415@gmail.com");

@@ -29,6 +29,9 @@ import methods
 
 channels = channel.ChannelSet()
 
+import plugin_inbox
+plugin_inbox.add_inbox_plugin(channels)
+
 tornado.options.define("port", default=8222, help="the port number to run on", type=int)
 tornado.options.define("host", default=None, help="the host name to run on", type=str)
 

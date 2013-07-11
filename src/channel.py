@@ -9,13 +9,15 @@ logger = logging.getLogger(__name__)
 import models
 
 class Channel(object) :
-    def __init__(self, channel_id, user, ttl=60*2) :
+    def __init__(self, channel_id, user=None, ttl=60*2) :
         self.channel_id = channel_id
         self.user = user
         self.callbacks = set()
         self.message_queue = []
         self.last_used = time.time()
         self.ttl = ttl
+    def update_last_used(self) :
+        self.last_used = time.time()
     def maybe_dequeue(self) :
         if self.message_queue and self.callbacks :
             messages = self.message_queue
@@ -25,18 +27,20 @@ class Channel(object) :
                 callback = self.callbacks.pop()
                 handled = callback(messages)
             if handled :
-                self.last_used = time.time()
+                self.update_last_used()
             else :
                 self.message_queue = messages
     def add_messages(self, messages) :
         for message in messages :
-            if message.appropriate_for(self.user) :
+            if self.user == None or message.appropriate_for(self.user) :
                 self.message_queue.append(message)
         self.maybe_dequeue()
     def add_callback(self, callback) :
+        self.update_last_used()
         self.callbacks.add(callback)
         self.maybe_dequeue()
     def remove_callback(self, callback) :
+        self.update_last_used() # because it might have been a timeout
         self.callbacks.remove(callback)
     def is_expired(self) :
         return time.time() - self.last_used > self.ttl
@@ -46,8 +50,9 @@ class Channel(object) :
 class ChannelSet(object) :
     def __init__(self) :
         self.channels = dict()
+        self.firehoseListeners = []
         self.next_channel_id = 1
-    def add_channel(self, user) :
+    def add_channel(self, user=None) :
         i = self.next_channel_id
         self.next_channel_id += 1
         c = Channel(i, user)
@@ -56,9 +61,13 @@ class ChannelSet(object) :
         return c
     def get_channel(self, i) :
         return self.channels.get(i, None)
+    def add_firehose_listener(self, callback) :
+        self.firehoseListeners.append(callback)
     def broadcast(self, messages) :
         for i, channel in self.channels.iteritems() :
             channel.add_messages(messages)
+        for listener in self.firehoseListeners :
+            listener(messages)
         to_remove = set()
         for i, channel in self.channels.iteritems() :
             if channel.is_expired() :
@@ -72,7 +81,7 @@ class Message(object) :
     def serialize(self) :
         raise NotImplemented
 
-class TextMessage(object) :
+class TextMessage(Message) :
     def __init__(self, user, m) :
         self.user = user
         self.m = m
@@ -83,7 +92,7 @@ class TextMessage(object) :
                 "args" : {"user" : self.user,
                           "m" : self.m}}
 
-class NewBlobMessage(object) :
+class NewBlobMessage(Message) :
     def __init__(self, blob) :
         self.blob = blob
     def appropriate_for(self, user) :
@@ -92,7 +101,7 @@ class NewBlobMessage(object) :
         return {"type" : "NewBlobMessage",
                 "args" : {"uuid" : self.blob.uuid}}
 
-class WebChangeMessage(object) :
+class WebChangeMessage(Message) :
     def __init__(self, web_id, web_name=None) :
         """web_name being None represents web deletion."""
         self.web_id = web_id
