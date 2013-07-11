@@ -113,7 +113,7 @@ var mv = (function (mv, $) {
     mv.rpc = function(module, method, args, onSuccess, onError) {
         var _xsrf = mv.getCookie("_xsrf");
         onSuccess = onSuccess || function() {};
-        onError = onError || function(err, exc) {console.log("rpc error: " + err + "\n" + exc);};
+        onError = onError || function(err, exc) {console.log("rpc error: " + err + "\n" + JSON.stringify(exc));};
         var data = {method : method,
                     kwargs : args || {}};
         $.ajax({url : "/ajax/rpc/" + module,
@@ -204,16 +204,22 @@ var mv = (function (mv, $) {
             mv.rpc("webs", "get_webs", {},
                    function (webs) {
                        self.knownWebs = webs;
+                       var selected = false;
                        if (_.size(webs) == 1) { // there is only one option! no need for fancy stuff
                            self.currentWeb = _.first(_.keys(webs));
+                           selected = true;
                        }
                        if (self.currentWeb === undefined && mv.getCookie("default_web_id")) {
                            var web_id = mv.getCookie("default_web_id");
                            if (_.has(self.knownWebs, web_id)) {
                                self.currentWeb = web_id;
+                               selected = true;
                            }
                        }
                        self.triggerEvent("updated");
+                       if (selected && self.currentWeb) {
+                           self.triggerEvent("selected");
+                       }
                    });
         },
         // Set the current web
@@ -234,7 +240,7 @@ var mv = (function (mv, $) {
         },
         // Rename a web
         renameWeb : function (webid, newwebname, callback) {
-            mv.rpc("webs", "rename_web", {id : this.currentWeb, newwebname : newwebname},
+            mv.rpc("webs", "rename_web", {id : webid, newwebname : newwebname},
                    callback);
         }
     });
@@ -261,9 +267,11 @@ var mv = (function (mv, $) {
         _init : function () {
             _Model._init.call(this);
             this.inProgress = {};
+            this.numInProgress = 0;
             this.nextId = 1;
             this.addEventType("updated"); // when a file state is updated (file state is passed)
             this.addEventType("aborted"); // when a file upload is aborted (file_id is passed)
+            this.addEventType("numChanged"); // when the number of uploading files changes (num is passed)
         },
         uploadFile : function (webId, file) {
             var self = this;
@@ -274,6 +282,8 @@ var mv = (function (mv, $) {
                 size : file.size
             });
             this.inProgress[fileId] = state;
+            this.numInProgress++;
+            this.triggerEvent("numChanged", this.numInProgress);
             var formData = new FormData();
             formData.append('files', file);
             formData.append('_xsrf', mv.getCookie('_xsrf'));
@@ -306,6 +316,8 @@ var mv = (function (mv, $) {
                     state.done = true;
                     state.error = false;
                     state.uuid = data.uuids[0];
+                    self.numInProgress--;
+                    self.triggerEvent("numChanged", self.numInProgress);
                     self.triggerEvent("updated", state);
                 },
                 error : function () {
@@ -314,6 +326,8 @@ var mv = (function (mv, $) {
                     }
                     state.done = true;
                     state.error = true;
+                    self.numInProgress--;
+                    self.triggerEvent("numChanged", self.numInProgress);
                     self.triggerEvent("updated", state);
                 }
             });
@@ -332,6 +346,8 @@ var mv = (function (mv, $) {
             state.aborted = true;
             delete this.inProgress[file_id];
             state.jqXHR.abort();
+            this.numInProgress--;
+            this.triggerEvent("numChanged", this.numInProgress);
             this.triggerEvent("aborted", file_id);
         }
     });
@@ -339,6 +355,60 @@ var mv = (function (mv, $) {
     // The actual file model
     mv.FileUploadModel = _.build(_FileUploadModel);
 
+    // Inbox model
+    // -----------
+
+    var _InboxModel = _.create(_Model, {
+        _init : function () {
+            _Model._init.call(this);
+            this.currentInboxes = {};
+            this.addEventType("updated"); // for when anything changes in the inbox (args: web)
+            this.addEventType("added"); // for when a blob gets added (args: web,uuid)
+            this.addEventType("removed"); // for when a blob gets removed (args: web,uuid)
+            _.bindAll(this, 'InboxMessageHandler');
+            mv.addMessageHandler('InboxMessage', this.InboxMessageHandler);
+        },
+        InboxMessageHandler : function (args) {
+            var inbox = this.currentInboxes[args.web_id];
+            if (inbox === undefined) {
+                // we don't track this one yet, so no use modifying currentInboxes
+                if (args.adding) {
+                    this.triggerEvent("added", args.web_id, args.uuid);
+                }
+            } else {
+                if (args.adding) {
+                    if (!_.has(inbox, args.uuid)) {
+                        inbox.push(args.uuid);
+                        this.triggerEvent("added", args.web_id, args.uuid);
+                    }
+                } else {
+                    this.currentInboxes[args.web_id] = _.without(inbox, args.uuid);
+                    this.triggerEvent("removed", args.web_id, args.uuid);
+                }
+                this.triggerEvent("updated", args.web_id);
+            }
+        },
+        pullInbox : function (webid) {
+            var self = this;
+            mv.rpc("inbox", "get_inbox", {"webid" : webid},
+                   function (uuids) {
+                       if (uuids !== null) {
+                           self.currentInboxes[webid] = uuids;
+                           self.triggerEvent("updated", webid);
+                       }
+                   });
+        }
+    });
+
+    mv.InboxModel = _.build(_InboxModel);
+
+    mv.WebModel.addEventHandler("selected", function (model) {
+        if (model.currentWeb === undefined) {
+            return;
+        } else {
+            mv.InboxModel.pullInbox(model.currentWeb);
+        }
+    });
 
     // other stuff
     // -----------
@@ -347,17 +417,6 @@ var mv = (function (mv, $) {
         var hash = $(window.location).attr('hash');
     };
 
-    // dealing with inbox
-    mv.current_inbox = [];
-    mv.addMessageHandler("InboxMessage", function(args) {
-        if (args.adding) {
-            if (!_.contains(mv.current_inbox, args.uuid)) {
-                mv.current_inbox.push(args.uuid)
-            }
-        } else {
-            mv.remove(args.uuid);
-        }
-    });
 
     return mv;
 })(window.my || {}, jQuery);
@@ -390,30 +449,54 @@ jQuery(function ($) {
         return false;
     });
 
+    mv.WebModel.addEventHandler(["updated", "selected", "deselected"], function (model) {
+        if (model.currentWeb === undefined) {
+            var webname = "(no web)";
+        } else {
+            var webname = model.knownWebs[model.currentWeb];
+        }
+        $("[data-webname]").text(webname);
+        $('#rename_web_form [name="newwebname"]').val(webname);
+    });
+
     mv.WebModel.addEventHandler(["updated", "deselected"], function (model) {
-        var el = $("#current_web_selector");
+        var el = $("#web_selector");
         el.empty();
         if (model.currentWeb === undefined) {
-            el.append($("<option/>").attr("value", -1).text("-- web --"));
+            //el.append($("<option/>").attr("value", -1).text("-- web --"));
         }
         _.each(model.knownWebs, function (value, key) {
-            var opt = $("<option/>").attr("value", key).text(value);
-            if (value == mv.currentWeb) {
-                opt.attr("selected", true);
-            }
-            el.append(opt);
+            var opt = $("<a/>").attr("href", "#" + value).text(value);
+            var edit = $("<a/>").attr("href", "#").addClass("webEditButton").text("edit");
+            var li = $("<li/>").append(edit).append(opt);
+            el.append(li);
+            opt.on("click", function() {
+                mv.WebModel.setCurrentWeb(key);
+            });
+            edit.on("click", function() {
+                var newwebname = prompt("New name for the web", value);
+                if (newwebname) {
+                    mv.WebModel.renameWeb(key, newwebname,
+                                          function (res) {
+                                              if (!res) {
+                                                  alert("There is already a web with that name.");
+                                              }
+                                          });
+                }
+                return false;
+            });
         });
     });
 
-    $("#current_web_selector").change(function () {
-        mv.WebModel.setCurrentWeb(this.value);
-    });
-    mv.WebModel.addEventHandler("selected", function (model) {
-        if (model.currentWeb !== undefined) {
-            $("#current_web_selector").find("[value='-1']").remove();
-            $("#current_web_selector").val(model.currentWeb);
-        }
-    });
+    // $("#current_web_selector").change(function () {
+    //     mv.WebModel.setCurrentWeb(this.value);
+    // });
+    // mv.WebModel.addEventHandler("selected", function (model) {
+    //     if (model.currentWeb !== undefined) {
+    //         $("#current_web_selector").find("[value='-1']").remove();
+    //         $("#current_web_selector").val(model.currentWeb);
+    //     }
+    // });
     $("#add_web").click(function () {
         var webname = prompt("Name for a new web");
         mv.WebModel.addWeb(webname,
@@ -443,6 +526,14 @@ jQuery(function ($) {
 
     var fileProgressBars = {};
 
+    mv.FileUploadModel.addEventHandler("numChanged", function (model, num) {
+        if (num) {
+            $("[data-num-uploads]").text("(" + num + ")");
+        } else {
+            $("[data-num-uploads]").text("");
+        }
+    });
+
     mv.FileUploadModel.addEventHandler("updated", function (model, fileState) {
         if (fileState.aborted) {
             return;
@@ -450,7 +541,7 @@ jQuery(function ($) {
         console.log("updated " + fileState.id);
         var progress;
         if (!_.has(fileProgressBars, fileState.id)) {
-            progress = $("<div/>").appendTo("#file_upload_notifications").fileUploadBar({
+            progress = $("<div/>").prependTo("#file_upload_notifications").fileUploadBar({
                 fileState : fileState,
                 stopped : function (file_id) {
                     mv.FileUploadModel.abortUpload(fileState.id);
@@ -499,7 +590,12 @@ jQuery(function ($) {
             }
             this.element.find(".fileUploadSize").text(sensibleSize);
             var percentage = Math.round(this.options.fileState.progress*100);
-            this.element.find("progress").toggle(!this.options.fileState.done).val(percentage);
+            if (percentage == 100) {
+                //indeterminate
+                this.element.find("progress").toggle(!this.options.fileState.done).removeAttr("value");
+            } else {
+                this.element.find("progress").toggle(!this.options.fileState.done).val(percentage);
+            }
             this.element.find(".fileUploadPercent").toggle(!this.options.fileState.done).text(percentage+"%");
             this.element.find(".fileUploadError").toggle(this.options.fileState.error);
             this.element.find(".fileUploadUuid").toggle(this.options.fileState.done).text(this.options.fileState.uuid);
@@ -527,4 +623,14 @@ jQuery(function ($) {
         });
         $("#fileupload").find(":file").val('');
     });
+    
+    mv.InboxModel.addEventHandler("updated", function (model, web_id) {
+        var el = $("#inbox");
+        el.empty();
+        $("<h2/>").text("Inbox for " + mv.WebModel.knownWebs[web_id]).appendTo(el);
+        _.each(model.currentInboxes[web_id], function (uuid) {
+            $("<p/>").text(uuid).appendTo(el);
+        });
+    });
+
 });

@@ -8,42 +8,76 @@
 <script type="text/javascript" src="{{ static_url("jquery-ui-1.10.3/ui/jquery-ui.js") }}"></script>
 <script type="text/javascript" src="{{ static_url("underscore-min.js") }}"></script>
 <script type="text/javascript" src="{{ static_url("mv.js") }}"></script>
+
+<link type="text/css" rel="stylesheet" href="{{ static_url("jquery.dropdown.css") }}" />
+<script type="text/javascript" src="{{ static_url("jquery.dropdown.js") }}"></script>
 </head>
 <body>
-<div id="content">
-  <h1>Metaview</h1>
-  <p>Welcome to metaview, {{ handler.current_user }}.</p>
 
-  <div id="webs">
-    <select id="current_web_selector">
-    </select>
-    <a id="add_web" href="#">+</a>
-    <a id="rename_web" href="#">rename</a>
+<div id="body">
+  <div id="header">
+    <div class="header_left">
+      Web: <a href="#" data-dropdown="#dropdown-webs"><span data-webname></span></a>
+    </div>
+    <div class="header_right">
+      <form id="fileupload" method="post" enctype="multipart/form-data" action="/upload">
+        {% module xsrf_form_html() %}
+        <input type="file" name="files" multiple />
+        <input type="submit" value="Upload"/>
+      </form>
+      <a href="#" data-dropdown="#dropdown-upload-notifications">Uploads<span class="uploadNumInProgress" data-num-uploads></span></a> |
+      <a href="#" data-dropdown="#dropdown-user">{{ handler.current_user.email }}</a>
+    </div>
+    <div class="clear"></div>
   </div>
+  <div id="content">
+    <div id="inbox">
+    </div>
 
-  <div id="polldest">
-  </div>
-</div>
+    <h2>Poll test</h2>
+    <div id="polldest">
+    </div>
 
 <form id="test_form">
   <input type="text" name="m"/>
   <input type="submit"/>
 </form>
 
-<form id="fileupload" method="post" enctype="multipart/form-data" action="/upload">
-  {% module xsrf_form_html() %}
-  <input type="file" name="files" multiple />
-  <input type="submit" value="Upload"/>
-</form>
-<div id="file_upload_notifications"/>
 
 <form id="poll_info_form">
   {% module xsrf_form_html() %}
   <input type="hidden" name="channel_id" value="{{ channel_id }}"/>
 </form>
 
-<div id="inbox">
+
+
+  </div>
+  <div id="footer">
+    Metaview2 (very experimental) &mdash; Kyle Miller
+  </div>
 </div>
+
+<div id="dropdown-user" class="dropdown dropdown-tip dropdown-anchor-right">
+  <ul class="dropdown-menu">
+    <li><a href="/logout">Log out</a></li>
+  </ul>
+</div>
+
+<div id="dropdown-webs" class="dropdown dropdown-tip">
+  <ul id="web_selector" class="dropdown-menu">
+  </ul>
+  <ul class="dropdown-menu">
+    <li><a id="add_web" href="#">Add web</a></li>
+  </ul>
+</div>
+
+<div id="dropdown-upload-notifications" class="dropdown dropdown-tip dropdown-anchor-right">
+  <div class="dropdown-panel">
+    <div id="file_upload_notifications"></div>
+  </div>
+</div>
+
+
 
 </body>
 </html>

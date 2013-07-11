@@ -78,11 +78,11 @@ create table relations (
 --- inbox
 
 create table plugin_inbox (
-  user_id integer,
+  web_id integer,
   blob_id integer,
-  foreign key(user_id) references users(id),
+  foreign key(web_id) references webs(id),
   foreign key(blob_id) references blobs(id),
-  unique(user_id, blob_id) on conflict ignore
+  unique(web_id, blob_id) on conflict ignore
 );
 
 

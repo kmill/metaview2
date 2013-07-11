@@ -1,3 +1,88 @@
+body { margin: 0; padding: 0; }
+#body { margin: 0; padding: 0; }
+
+a {
+    text-decoration: none;
+    color: #00D;
+}
+a:visited {
+    color: #55C;
+}
+a:hover {
+    color: #66f;
+    text-decoration:underline;
+}
+
+#header {
+    padding: 3px 1em 2px 1em;
+    background: #ddf;
+    font-family: "helvetica neue", "helvetica", "arial", "sans-serif";
+    border-style: solid;
+    border-width: 1px 0 1px 0;
+    border-color: #bbd;
+}
+#header a:visited {
+    color: #00D;
+}
+#header div.header_left {
+    margin: 0;
+    padding: 0;
+    float: left;
+}
+#header div.header_right {
+    margin: 0;
+    padding: 0;
+    float: right;
+}
+#fileupload {
+    display: inline;
+}
+div.clear {
+    clear: both;
+    width: 100%;
+    height: 1px;
+    margin-top: -1px;
+}
+
+#content {
+    padding: 1em 1em 1em 1em;
+    width: 786px;
+}
+
+#footer {
+    font-size: 80%;
+    width: 768px;
+    padding: 0 1em 2em 3em;
+}
+
+/* add web */
+
+a#add_web {
+    font-style: italic;
+}
+
+a.webEditButton {
+    float: right;
+    clear: none;
+    font-style: italic;
+}
+
+#dropdown-upload-notifications div.dropdown-panel {
+    max-width: 100%;
+}
+
+span.uploadNumInProgress {
+    font-weight: bold;
+}
+
+/* scratch */
+
+
+#fileupload_div {
+    width: 510px;
+    float: right;
+}
+
 div.fileUploadBar {
     margin: 2px;
     border-width: 1px;

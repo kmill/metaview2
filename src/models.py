@@ -47,6 +47,11 @@ class UserWebAccess(object) :
         return [Web(id=row['id'], name=row['web_name'])
                 for row in DB.execute('select id, web_name from webs inner join user_web_access on user_web_access.web_id=webs.id where user_web_access.user_id=?', (user.id,))]
     @staticmethod
+    def can_user_access(user, web) :
+        user_id = user.id if isinstance(user, User) else user
+        web_id = web.id if isinstance(web, Web) else web
+        return None != DB.execute("select web_id from user_web_access where user_id=? and web_id=?", (user_id, web_id)).fetchone()
+    @staticmethod
     def remove_for_user(web, user) :
         with DB :
             DB.execute("delete from user_web_access where web_id=? and user_id=?",
@@ -196,3 +201,7 @@ class WebBlobAccess(object) :
         with DB :
             DB.execute("insert into blobs_web (web_id, blob_id) values (?,?)",
                          (web.id, blob.id))
+    @staticmethod
+    def get_webs_for_blob(blob) :
+        blob_id = blob.id if isinstance(blob, Blob) else blob
+        return [Web.get_by_id(r['web_id']) for r in DB.execute("select web_id from blobs_web where blob_id=?", (blob_id,))]

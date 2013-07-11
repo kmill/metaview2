@@ -41,7 +41,7 @@ class WebsRPC(RPCServable) :
         return web.id
     @rpcmethod
     def rename_web(self, user, id, newwebname) :
-        if newwebname in [w.name for w in models.Web.get_all()] :
+        if not newwebname or newwebname in [w.name for w in models.Web.get_all()] :
             return None
         web = models.Web.get_by_id(id)
         web.name = newwebname
