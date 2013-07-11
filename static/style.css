@@ -1,0 +1,63 @@
+div.fileUploadBar {
+    margin: 2px;
+    border-width: 1px;
+    border-color: #999;
+    border-style: solid;
+    padding: 5px;
+    background: #ffe;
+    width: 500px;
+}
+
+.fileUploadFilename {
+    width: 100px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: inline-block;
+}
+.fileUploadSize {
+    margin-left: 20px;
+    margin-right: 5px;
+    font-weight: bold;
+    display: inline-block;
+    width: 4em;
+}
+.fileUploadBar progress {
+    margin-left: 5px;
+    margin-right: 5px;
+    width: 210px;
+    display: inline-block;
+}
+.fileUploadPercent {
+    margin-left: 5px;
+    width: 4em;
+    text-align: right;
+    display: inline-block;
+}
+.fileUploadError {
+    color: red;
+    font-weight: bold;
+    width: 150px;
+    text-align: center;
+    display: inline-block;
+}
+.fileUploadUuid {
+    margin-left: 5px;
+    margin-right: 5px;
+    width: 280px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: inline-block;
+}
+.fileUploadRemove {
+    margin-left: 5px;
+    display: inline-block;
+}
+.fileUploadRemove a {
+    float: left;
+    text-decoration: none;
+}
+.fileUploadRemove a:hover {
+    background: #eed;
+}

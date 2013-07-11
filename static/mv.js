@@ -162,7 +162,7 @@ var mv = (function (mv, $) {
         // Triggers an event with some arguments.
         triggerEvent : function (name) {
             var args = _.rest(arguments, 1);
-            args.push(this);
+            args.unshift(this);
             _.each(this.eventHandlers[name], function(handler) {
                 handler.apply(undefined, args);
             });
@@ -174,7 +174,7 @@ var mv = (function (mv, $) {
     // ----
 
     var _WebModel = _.create(_Model, {
-        _init : function() {
+        _init : function () {
             _Model._init.call(this);
             this.knownWebs = {};
             this.currentWeb = undefined;
@@ -199,7 +199,7 @@ var mv = (function (mv, $) {
             this.triggerEvent("updated");
         },
         // Asks the server for all of the webs
-        pullWebs : function() {
+        pullWebs : function () {
             var self = this;
             mv.rpc("webs", "get_webs", {},
                    function (webs) {
@@ -241,6 +241,107 @@ var mv = (function (mv, $) {
 
     // The actual web model
     mv.WebModel = _.build(_WebModel);
+
+
+    // File uploads
+    // ------------
+
+    var _FileState = {
+        name : undefined,
+        size : undefined,
+        progress : 0,
+        done : false,
+        error : false,
+        aborted : false,
+        uuid : undefined,
+        jqXHR : undefined
+    }
+
+    var _FileUploadModel = _.create(_Model, {
+        _init : function () {
+            _Model._init.call(this);
+            this.inProgress = {};
+            this.nextId = 1;
+            this.addEventType("updated"); // when a file state is updated (file state is passed)
+            this.addEventType("aborted"); // when a file upload is aborted (file_id is passed)
+        },
+        uploadFile : function (webId, file) {
+            var self = this;
+            var fileId = this.nextId++;
+            var state = _.create(_FileState, {
+                id : fileId,
+                name : file.name,
+                size : file.size
+            });
+            this.inProgress[fileId] = state;
+            var formData = new FormData();
+            formData.append('files', file);
+            formData.append('_xsrf', mv.getCookie('_xsrf'));
+            state.jqXHR = $.ajax({
+                url : "/upload/" + webId,
+                type : "POST",
+                data : formData,
+                contentType : false,
+                processData : false,
+                cache : false,
+                xhr : function () {
+                    function progressHandler (e) {
+                        if (!state.aborted) {
+                            state.progress = e.loaded/Math.max(1, e.total);
+                            self.triggerEvent("updated", state);
+                        }
+                    }
+                    var myXhr = $.ajaxSettings.xhr();
+                    if (myXhr.upload) {
+                        myXhr.upload.addEventListener('progress', progressHandler, false);
+                    }
+                    return myXhr;
+                },
+                success : function (data) {
+                    if (state.aborted) {
+                        // kind of a weird state, but ignore!
+                        return;
+                    }
+                    state.progress = 1;
+                    state.done = true;
+                    state.error = false;
+                    state.uuid = data.uuids[0];
+                    self.triggerEvent("updated", state);
+                },
+                error : function () {
+                    if (state.aborted) {
+                        return;
+                    }
+                    state.done = true;
+                    state.error = true;
+                    self.triggerEvent("updated", state);
+                }
+            });
+            self.triggerEvent("updated", state);
+        },
+        // Aborts the upload.  It is ok to call this even when it's
+        // not appropriate to abort.
+        abortUpload : function (file_id) {
+            var state = this.inProgress[file_id];
+            if (state === undefined) {
+                return;
+            } else if (state.done || state.aborted) {
+                state.aborted = true;
+                return;
+            }
+            state.aborted = true;
+            delete this.inProgress[file_id];
+            state.jqXHR.abort();
+            this.triggerEvent("aborted", file_id);
+        }
+    });
+
+    // The actual file model
+    mv.FileUploadModel = _.build(_FileUploadModel);
+
+
+    // other stuff
+    // -----------
 
     mv.parseHashUrl = function () {
         var hash = $(window.location).attr('hash');
@@ -340,87 +441,80 @@ jQuery(function ($) {
 
     // dealing with file uploads
 
-    if (FormData) {
-        $("#fileupload").find('input[type="submit"]').hide();
-    }
+    var fileProgressBars = {};
+
+    mv.FileUploadModel.addEventHandler("updated", function (model, fileState) {
+        if (fileState.aborted) {
+            return;
+        }
+        console.log("updated " + fileState.id);
+        var progress;
+        if (!_.has(fileProgressBars, fileState.id)) {
+            progress = $("<div/>").appendTo("#file_upload_notifications").fileUploadBar({
+                fileState : fileState,
+                stopped : function (file_id) {
+                    mv.FileUploadModel.abortUpload(fileState.id);
+                    delete fileProgressBars[fileState.id];
+                    progress.remove();
+                }
+            });
+            fileProgressBars[fileState.id] = progress;
+        } else {
+            progress = fileProgressBars[fileState.id];
+        }
+        progress.fileUploadBar("filestate", fileState);
+    });
+    $("#fileupload").find('input[type="submit"]').hide();
+
     $.widget("mv.fileUploadBar", {
         options : {
-            filename : "(no name)",
-            progress : 0,
-            done : false,
-            error : false,
-            finishToken : undefined,
+            fileState : undefined
         },
         _create : function() {
             this.element.addClass("fileUploadBar");
-            this.element.append($("<span>").text(this.options["filename"]));
+            this.element.append($("<div/>").addClass("fileUploadFilename"));
+            this.element.append($("<div/>").addClass("fileUploadSize"));
             $("<progress/>").appendTo(this.element).attr("max", 100);
+            this.element.append($("<div/>").addClass("fileUploadPercent"));
+            this.element.append($("<div/>").addClass("fileUploadError").text("Upload error"));
+            this.element.append($("<div/>").addClass("fileUploadUuid"));
+            var stopButton = $("<a/>").attr("href", "#").text("X");
+            var self = this;
+            stopButton.on("click", function () {
+                self._trigger("stopped", null, {fileId : self.options.fileState.id});
+            });
+            this.element.append($("<div/>").addClass("fileUploadRemove").append(stopButton));
             this._update();
         },
         _update : function() {
-            if (this.options.done) {
-                this.element.empty();
-                this.element.append($("<span>").text(this.options["filename"]));
-                if (this.options.error) {
-                    this.element.append($("<span>").text("Upload error"));
-                } else {
-                    this.element.append($("<span>").text(this.options.finishToken));
-                }
+            this.element.find(".fileUploadFilename").text(this.options.fileState.name).attr("title", this.options.fileState.name);
+            var size = this.options.fileState.size;
+            var sensibleSize;
+            if (size < 1024/10) {
+                sensibleSize = size + " B";
+            } else if (size < 1024*1024/10) {
+                sensibleSize = (size/1024).toPrecision(2) + " kB";
             } else {
-                this.element.find("progress").val(this.options["progress"]);
+                sensibleSize = (size/1024/1024).toPrecision(2) + " MB";
             }
+            this.element.find(".fileUploadSize").text(sensibleSize);
+            var percentage = Math.round(this.options.fileState.progress*100);
+            this.element.find("progress").toggle(!this.options.fileState.done).val(percentage);
+            this.element.find(".fileUploadPercent").toggle(!this.options.fileState.done).text(percentage+"%");
+            this.element.find(".fileUploadError").toggle(this.options.fileState.error);
+            this.element.find(".fileUploadUuid").toggle(this.options.fileState.done).text(this.options.fileState.uuid);
         },
-        value : function(v) {
-            if (v === undefined) {
-                return this.options.progress;
+        filestate : function (fileState) {
+            if (fileState === undefined) {
+                return this.options.fileState;
             } else {
-                this.options.progress = v;
+                this.options.fileState = fileState;
                 this._update();
             }
-        },
-        finish : function(token) {
-            this.options.done = true;
-            this.options.error = false;
-            this.options.finishToken = token;
-            this._update();
-        },
-        error : function() {
-            this.options.done = true;
-            this.options.error = true;
-            this._update();
         }
     });
-    function uploadFile(file) {
-        var progress = $("<div/>").appendTo("#file_upload_notification").fileUploadBar({filename : file.name});
-        var formData = new FormData();
-        formData.append('files', file);
-        formData.append('_xsrf', mv.getCookie("_xsrf"));
-        $.ajax({url : "/upload/" + mv.current_web,
-                type : "POST",
-                data : formData,
-                contentType : false,
-                processData : false,
-                cache : false,
-                xhr : function() {
-                    function progressHandler (e) {
-                        progress.fileUploadBar("value", Math.round(100*e.loaded/Math.max(1, e.total)));
-                    }
-                    var myXhr = $.ajaxSettings.xhr();
-                    if (myXhr.upload) {
-                        myXhr.upload.addEventListener('progress', progressHandler, false);
-                    }
-                    return myXhr;
-                },
-                success : function (data) {
-                    progress.fileUploadBar("finish", data.uuids[0]);
-                },
-                error : function (data) {
-                    progress.fileUploadBar("error");
-                }
-               });
-    }
     $("#fileupload").find(":file").change(function () {
-        if (mv.current_web === undefined) {
+        if (mv.WebModel.currentWeb === undefined) {
             alert("Select a web first");
             $('#fileupload').find(":file").val('');
             return;
@@ -428,15 +522,9 @@ jQuery(function ($) {
         if (!$('#fileupload').find(":file").val()) {
             return;
         }
-        var files = $('#fileupload').find(":file")[0].files;
-        for (var i = 0; i < files.length; i++) {
-            var file = files[i];
-            uploadFile(file);
-        }
+        _.each($('#fileupload').find(":file")[0].files, function (file) {
+            mv.FileUploadModel.uploadFile(mv.WebModel.currentWeb, file);
+        });
         $("#fileupload").find(":file").val('');
-
     });
-
-
-    mv.parseHashUrl();
 });
