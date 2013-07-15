@@ -9,6 +9,7 @@ import httplib
 import tornado.options
 
 import json
+import urllib
 
 import uuid
 import base64
@@ -23,8 +24,10 @@ logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
 import models
+import relations
 import channel
 import minirpc
+import rpcmodules
 import methods
 
 channels = channel.ChannelSet()
@@ -33,7 +36,8 @@ import plugin_inbox
 plugin_inbox.add_inbox_plugin(channels)
 
 tornado.options.define("port", default=8222, help="the port number to run on", type=int)
-tornado.options.define("host", default=None, help="the host name to run on", type=str)
+tornado.options.define("googckey", default=None, help="the google consumer key", type=str)
+tornado.options.define("googcsecret", default=None, help="the google consumer secret", type=str)
 
 models.db_connect("mv.db")
 
@@ -42,21 +46,20 @@ def random256() :
 
 class MVRequestHandler(web.RequestHandler) :
     def get_current_user(self) :
-        return models.User.get_by_email("kmill31415@gmail.com")
+        #return models.User.get_by_email("kmill31415@gmail.com")
         return models.User.get_by_email(self.get_secure_cookie("user_email"))
 
 class GoogleHandler(MVRequestHandler, tornado.auth.GoogleMixin):
     @tornado.web.asynchronous
     def get(self):
-        # override the host name so that the redirect comes back to the right URL
-        if self.application.settings["host_name_override"] != None :
-            self.request.host = self.application.settings["host_name_override"]
         if self.get_argument("openid.mode", None):
-            self.get_authenticated_user(self.async_callback(self._on_auth))
+            self.get_authenticated_user(callback=self.async_callback(self._on_auth))
             return
-        self.authenticate_redirect()
+        #self.authenticate_redirect()
+        self.authorize_redirect(oauth_scope="https://www.googleapis.com/auth/userinfo.profile")
 
     def _on_auth(self, user):
+        logger.info("Got google user %r", user)
         if not user or not user["email"]:
             raise tornado.web.HTTPError(500, "Google auth failed")
         # construct/get User object and update it
@@ -68,7 +71,41 @@ class GoogleHandler(MVRequestHandler, tornado.auth.GoogleMixin):
         self.set_secure_cookie("user_email", u.email)
         logger.info("User logged in: %s", u)
         #self.redirect("/")
-        self.redirect(self.get_argument("next", "/"))
+        # get avatar icon
+        self.u = u
+        # get user info
+        self.google_request("https://www.googleapis.com/auth/userinfo.profile",
+                            "https://www.googleapis.com/oauth2/v1/userinfo",
+                            user["access_token"],
+                            self.userinfo_callback)
+        if u.avatar != None : # (otherwise we block so that the user has an avatar on the first login)
+            self.redirect(self.get_argument("next", "/"))
+    def userinfo_callback(self, response) :
+        is_finished = self.u.avatar != None
+        if response.error :
+            logger.error("Userinfo callback failed. %s", response.error)
+            if not is_finished :
+                raise tornado.web.HTTPError(500, "Getting avatar failed")
+            return
+        self.u.avatar = json.loads(response.body)["picture"]
+        models.User.update(self.u)
+        if not is_finished :
+            self.redirect(self.get_argument("next", "/"))
+    def google_request(self, scope, url, access_token, callback) :
+        all_args = {"scope" : scope, "v" : 2, "alt" : "json"}
+        oauth = self._oauth_request_parameters(url, access_token, all_args, method="GET")
+        all_args.update(oauth)
+        url += "?" + urllib.urlencode(all_args)
+        tornado.httpclient.AsyncHTTPClient().fetch(url, callback)
+
+class AvatarHandler(MVRequestHandler) :
+    @tornado.web.authenticated
+    def get(self, email) :
+        user = models.User.get_by_email(email)
+        if user and user.avatar != None :
+            self.redirect(user.avatar)
+        else :
+            raise tornado.web.HTTPError(404)
 
 class LoginHandler(MVRequestHandler) :
     def get(self) :
@@ -131,13 +168,14 @@ class RpcHandler(MVRequestHandler) :
         def getMessage() :
             args = json.loads(self.get_argument("message", None))
             args.setdefault("kwargs", {})["user"] = self.current_user
+            print repr(args)
             return args
-        if module not in methods.RPC_MODULES :
+        if module not in rpcmodules.RPC_MODULES :
             logger.error("No such rpc module %s", module)
             self.finish(minirpc.render_exception(KeyError(module)))
         else :
             const_args = {"handler" : self, "channels" : channels}
-            self.finish(minirpc.handle_request(methods.RPC_MODULES[module](**const_args),
+            self.finish(minirpc.handle_request(rpcmodules.RPC_MODULES[module](**const_args),
                                                getMessage))
 
 class BlobHandler(MVRequestHandler) :
@@ -146,7 +184,7 @@ class BlobHandler(MVRequestHandler) :
         self.get(blob_id, include_body=False)
 
     @tornado.web.authenticated
-    def get(self, blob_id, include_body=True) :
+    def get(self, blob_id, filename=None, include_body=True) :
         blob = models.Blob.get_by_uuid(blob_id)
         if not blob :
             raise tornado.web.HTTPError(404)
@@ -187,12 +225,14 @@ class UploadHandler(MVRequestHandler) :
             b = models.Blob.make_blob(self.current_user, content_type, c)
             blobs.append(b)
             models.WebBlobAccess.add_for_blob(web, b)
+            if f.filename :
+                relations.BinaryRelation.make(web, self.current_user, "filename", b, f.filename)
             uuids.append(b.uuid)
         self.finish({"uuids" : uuids})
         channels.broadcast([channel.NewBlobMessage(b) for b in blobs])
 
 class MVApplication(tornado.web.Application) :
-    def __init__(self, host_name_override=None) :
+    def __init__(self) :
         settings = dict(
             app_title="MetaView",
             template_path="templates",
@@ -201,7 +241,8 @@ class MVApplication(tornado.web.Application) :
             cookie_secret=random256(),
             ui_modules={},
             xsrf_cookies=True,
-            host_name_override=host_name_override
+            google_consumer_key=tornado.options.options.googckey,
+            google_consumer_secret=tornado.options.options.googcsecret,
             )
         
         handlers = [
@@ -212,7 +253,8 @@ class MVApplication(tornado.web.Application) :
             (r"/upload/(\d+)", UploadHandler),
             (r"/ajax/poll", PollHandler),
             (r"/ajax/rpc/(.*)", RpcHandler),
-            (r"/blob/(.*)", BlobHandler),
+            (r"/blob/([0-9a-f]+)(/.*)?", BlobHandler),
+            (r"/avatar/(.*)", AvatarHandler),
             (r"/test/push", PushHandler),
             ]
         
@@ -221,9 +263,7 @@ class MVApplication(tornado.web.Application) :
 if __name__=="__main__" :
     tornado.options.parse_command_line()
     logger.info("Starting metaview...")
-    application = MVApplication(host_name_override=tornado.options.options.host)
-    if application.settings["host_name_override"] != None :
-        logger.info("Using host name override of %s", application.settings["host_name_override"])
+    application = MVApplication()
     portnum = tornado.options.options.port
     application.listen(portnum)
     logger.info("Listening on port %s", portnum)

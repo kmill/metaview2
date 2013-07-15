@@ -55,6 +55,24 @@ div.clear {
     padding: 0 1em 2em 3em;
 }
 
+/* avatars */
+
+div.user-avatar {
+    display: inline-block;
+    width: 27px;
+    height: 27px;
+    border-width: 1px;
+    border-style: solid;
+    border-color: #bbd;
+    padding: 0;
+    vertical-align: middle;
+}
+div.user-avatar img {
+    width: 27px;
+    height: 27px;
+    margin: 0;
+}
+
 /* add web */
 
 a#add_web {

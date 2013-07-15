@@ -15,6 +15,7 @@ create table users (
   first_name text,
   last_name text,
   locale text,
+  avatar text, -- url to avatar
   unique(email)
 );
 
@@ -62,7 +63,8 @@ create table relation_types (
 
 create table relations (
   id integer primary key,
-  web_id integer,
+  web_id integer not null,
+  blob_id integer not null, -- the blob associated with this relation
   subject_id integer not null,
   relation integer not null,
   object_id integer,

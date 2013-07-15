@@ -1,6 +1,8 @@
 # channel.py
 # support for pushing updates through channels
 
+from tornado.ioloop import IOLoop
+
 import time
 
 import logging
@@ -9,6 +11,9 @@ logger = logging.getLogger(__name__)
 import models
 
 class Channel(object) :
+    """Represents a channel which can get messages.  It queues
+    messages and sends them all out on the next ioloop.  MAYBETODO:
+    why is user here?"""
     def __init__(self, channel_id, user=None, ttl=60*2) :
         self.channel_id = channel_id
         self.user = user
@@ -34,7 +39,7 @@ class Channel(object) :
         for message in messages :
             if self.user == None or message.appropriate_for(self.user) :
                 self.message_queue.append(message)
-        self.maybe_dequeue()
+        IOLoop.instance().add_callback(self.maybe_dequeue)
     def add_callback(self, callback) :
         self.update_last_used()
         self.callbacks.add(callback)
@@ -43,7 +48,7 @@ class Channel(object) :
         self.update_last_used() # because it might have been a timeout
         self.callbacks.remove(callback)
     def is_expired(self) :
-        return time.time() - self.last_used > self.ttl
+        return not self.callbacks and time.time() - self.last_used > self.ttl
     def verify(self, user) :
         return self.user.id == user.id
 

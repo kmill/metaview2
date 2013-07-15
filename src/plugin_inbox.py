@@ -4,7 +4,7 @@
 import models
 import channel
 import methods
-from methods import rpc_module
+from rpcmodules import rpc_module
 
 import minirpc
 from minirpc import rpcmethod, RPCServable
@@ -33,6 +33,8 @@ class InboxRPC(RPCServable) :
     @rpcmethod
     def get_inbox(self, user, webid) :
         if models.UserWebAccess.can_user_access(user, webid) :
+#            import relations
+#            return dict((i, relations.get_relations_for(webid, i)) for i in Inbox.get_inbox_uuids(webid))
             return Inbox.get_inbox_uuids(webid)
         else :
             return None
@@ -45,8 +47,10 @@ class InboxMessage(channel.Message) :
     def appropriate_for(self, user) :
         return models.UserWebAccess.can_user_access(user, self.web)
     def serialize(self) :
+        import relations
         return {"type" : "InboxMessage",
                 "args" : {"uuid" : self.blob.uuid,
+#                          "relations" : relations.get_relations_for(self.web.id, self.blob.uuid) if self.adding else {},
                           "web_id" : self.web.id,
                           "adding" : self.adding}}
 

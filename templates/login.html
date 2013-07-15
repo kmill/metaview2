@@ -4,14 +4,24 @@
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
 <title>{{ handler.settings["app_title"] }} - Login</title>
 <link rel="stylesheet" href="{{ static_url("login_style.css") }}" type="text/css" />
-<script type="text/javascript" src="{{ static_url("jquery-2.0.3.min.js") }}"></script>
+<script type="text/javascript" src="{{ static_url("jquery-ui-1.10.3/jquery-1.9.1.js") }}"></script>
+<script type="text/javascript" src="{{ static_url("jquery-ui-1.10.3/ui/jquery-ui.js") }}"></script>
+<script type="text/javascript" src="{{ static_url("underscore-min.js") }}"></script>
+<script type="text/javascript">
+  $(function () {
+    $("a.needshash").each(function () {
+      var $e = $(this);
+      $e.attr("href", $e.attr("href") + $(window.location).attr("hash"));
+    });
+  });
+</script>
 </head>
 <body>
 <div id="content">
   <h1>Login</h1>
   <p>You need to log in using OAuth to use Metaview.  Please choose a provider:</p>
   <ul>
-    <li><a href="/login/google?next={{ url_escape(next) }}">Google</a></li>
+    <li><a class="needshash" href="/login/google?next={{ url_escape(next) }}">Google</a></li>
   </ul>
 </div>
 </body>

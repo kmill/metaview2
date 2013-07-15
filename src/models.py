@@ -63,39 +63,47 @@ class UserWebAccess(object) :
                          (web.id, user.id))
 
 class User(object) :
-    def __init__(self, id=None, email=None, first_name=None, last_name=None, locale=None) :
+    def __init__(self, id=None, email=None, first_name=None, last_name=None, locale=None, avatar=None) :
         self.id = id
         self.email = email
         self.first_name = first_name
         self.last_name = last_name
         self.locale = locale
+        self.avatar = avatar
     def __repr__(self) :
-        return "User(id=%r, email=%r, first_name=%r, last_name=%r, locale=%r)" % (self.id, self.email, self.first_name, self.last_name, self.locale)
+        return "User(id=%r, email=%r, first_name=%r, last_name=%r, locale=%r, avatar=%r)" % (self.id, self.email, self.first_name, self.last_name, self.locale, self.avatar)
     @staticmethod
     def update(user) :
         with DB :
             if user.id == None :
-                c = DB.execute("insert into users (email, first_name, last_name, locale) values (?,?,?,?)",
-                                 (user.email, user.first_name, user.last_name, user.locale))
+                c = DB.execute("insert into users (email, first_name, last_name, locale, avatar) values (?,?,?,?,?)",
+                                 (user.email, user.first_name, user.last_name, user.locale, user.avatar))
                 user.id = c.lastrowid
             else :
-                DB.execute("update users set email=?, first_name=?, last_name=?, locale=? where id=?",
-                             (user.email, user.first_name, user.last_name, user.locale, user.id))
+                DB.execute("update users set email=?, first_name=?, last_name=?, locale=?, avatar=? where id=?",
+                             (user.email, user.first_name, user.last_name, user.locale, user.avatar, user.id))
     @staticmethod
     def get_by_email(email) :
-        for row in DB.execute("select id, email, first_name, last_name, locale from users where email=?", (email,)) :
+        for row in DB.execute("select id, email, first_name, last_name, locale, avatar from users where email=?", (email,)) :
             return User(id=row['id'], email=row['email'],
                         first_name=row['first_name'], last_name=row['last_name'],
-                        locale=row['locale'])
+                        locale=row['locale'], avatar=row['avatar'])
         return None
     @staticmethod
     def get_by_id(id) :
-        for row in DB.execute("select id, email, first_name, last_name, locale from users where id=?", (id,)) :
+        for row in DB.execute("select id, email, first_name, last_name, locale, avatar from users where id=?", (id,)) :
             return User(id=row['id'], email=row['email'],
                         first_name=row['first_name'], last_name=row['last_name'],
-                        locale=row['locale'])
+                        locale=row['locale'], avatar=row['avatar'])
         return None
-
+    @staticmethod
+    def get_all() :
+        users = []
+        for row in DB.execute("select id, email, first_name, last_name, locale, avatar from users") :
+            users.append(User(id=row['id'], email=row['email'],
+                              first_name=row['first_name'], last_name=row['last_name'],
+                              locale=row['locale'], avatar=row['avatar']))
+        return users
 
 class Content(object) :
     def __init__(self, hash=None, stuff=None) :
