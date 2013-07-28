@@ -46,7 +46,7 @@ def random256() :
 
 class MVRequestHandler(web.RequestHandler) :
     def get_current_user(self) :
-        #return models.User.get_by_email("kmill31415@gmail.com")
+        return models.User.get_by_email("kmill31415@gmail.com")
         return models.User.get_by_email(self.get_secure_cookie("user_email"))
 
 class GoogleHandler(MVRequestHandler, tornado.auth.GoogleMixin):

@@ -8,9 +8,33 @@
 <script type="text/javascript" src="{{ static_url("jquery-ui-1.10.3/ui/jquery-ui.js") }}"></script>
 <script type="text/javascript" src="{{ static_url("underscore-min.js") }}"></script>
 <script type="text/javascript" src="{{ static_url("mv.js") }}"></script>
+<script type="text/javascript" src="{{ static_url("mv-ui.js") }}"></script>
 
 <link type="text/css" rel="stylesheet" href="{{ static_url("jquery.dropdown.css") }}" />
 <script type="text/javascript" src="{{ static_url("jquery.dropdown.js") }}"></script>
+
+<script type="text/template" template-name="test-message-entry">
+<div><%= data.args.user %>: <%= data.args.m %></div>
+</script>
+
+<!-- expects data.webid and data.blobid -->
+<script type="text/template" template-name="blob-wrapper">
+<div class="blob-wrapper" data-blob-webid="<%= data.webid %>" data-blob-uuid="<%= data.uuid %>">
+  <% if (data.content === undefined) { %>
+  <em>loading...</em>
+  <% } else { %>
+  <%= data.content %>
+  <% } %>
+</div>
+</script>
+
+<script type="text/template" template-name="blob-generic">
+<div class="blob">
+<div class="blob_content">
+</div>
+</div>
+</script>
+
 </head>
 <body>
 
@@ -32,6 +56,9 @@
   </div>
   <div id="content">
     <div id="inbox">
+    </div>
+
+    <div id="blob-view">
     </div>
 
     <h2>Poll test</h2>

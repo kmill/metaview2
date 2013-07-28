@@ -37,83 +37,6 @@ var mv = (function (mv, $) {
         return r ? r[1] : undefined;
     };
 
-
-    // Makes a long polling loop. Calls 'handler' on any list of
-    // messages which come by, else calls 'onError' with an error
-    // message.
-    mv.longPollDriver = function (handler, onError) {
-        if (mv.Connection === undefined || mv.Connection.channel_id === undefined) {
-            throw new TypeError("longPollDriver needs mv.Connection.channel_id to be set");
-        }
-        var _xsrf = mv.getCookie("_xsrf");
-        onError = onError || function() {};
-        function loop() {
-            $.ajax({url : "/ajax/poll",
-                    type : "POST",
-                    dataType : "json",
-                    data : {_xsrf : _xsrf,
-                            channel_id : mv.Connection.channel_id},
-                    success : function (data) {
-                        if ("messages" in data) {
-                            handler(data["messages"]);
-                            loop();
-                        } else {
-                            if (data.error == "no such channel") {
-                                mv.Connection.triggerEvent("badChannel");
-                            }
-                            if (onError(data["error"])) {
-                                _.delay(loop, 500);
-                            }
-                        }
-                    },
-                    error : function (jqXHR, textStatus, errorThrown) {
-                        if (textStatus == "timeout") {
-                            loop();
-                        } else {
-                            console.log("Long polling error: " + textStatus + " (" + errorThrown + ")");
-                            if (textStatus == "error" && errorThrown == "Forbidden") {
-                                mv.Connection.triggerEvent("badChannel");
-                            }
-                            if (onError(textStatus, errorThrown)) {
-                                _.delay(loop, 2000);
-                            }
-                        }
-                    }
-                   });
-        }
-        loop();
-    };
-
-    mv.messageHandlers = {};
-
-    // Adds a message handler for a particular message type
-    // 'name'. There can be any number of handlers for any message
-    // type.
-    mv.addMessageHandler = function (name, func) {
-        if (!_.has(mv.messageHandlers, name)) {
-            mv.messageHandlers[name] = [];
-        }
-        mv.messageHandlers[name].push(func);
-    };
-    // Starts a long poll which calls message handlers on each message
-    // which comes by.  Uses mv.longPollDriver to do this, and the
-    // 'onError' callback is passed right on to it.
-    mv.longPoll = function (onError) {
-        mv.longPollDriver(
-            function (messages) {
-                _(messages).each(function(message) {
-                    if (_.has(mv.messageHandlers, message["type"])) {
-                        _(mv.messageHandlers[message["type"]]).each(function (handler) {
-                            handler(message["args"]);
-                        });
-                    } else {
-                        console.log("Unknown message type: " + message["type"]);
-                    }
-                });
-            },
-            onError);
-    };
-
     // Asynchronously calls module/method with a given dictionary of
     // args on the server.  The callback 'onSuccess' gets the return
     // value, and 'onError' gets an error and an exception (whatever
@@ -143,6 +66,8 @@ var mv = (function (mv, $) {
                 }
                });
     };
+
+    // Long polling is handled by the Connection object, below.
     
     // Models
     // ------
@@ -157,10 +82,10 @@ var mv = (function (mv, $) {
             this.eventHandlers[name] = [];
         },
         // Register an event handler for a particular event name in this model.
-        addEventHandler : function (name, func) {
+        on : function (name, func) {
             if (_.isArray(name)) {
                 var self = this;
-                _.each(name, function (n) { self.addEventHandler(n, func); });
+                _.each(name, function (n) { self.on(n, func); });
             } else if (!_.has(this.eventHandlers, name)) {
                 throw new TypeError("Event handler type not declared: " + name);
             } else {
@@ -180,6 +105,17 @@ var mv = (function (mv, $) {
     // Connection
     // ----------
 
+    // Adds a message handler for a particular message type
+    // 'name'. There can be any number of handlers for any message
+    // type.
+    mv.addMessageHandler = function (name, func) {
+        if (!_.has(mv.messageHandlers, name)) {
+            mv.messageHandlers[name] = [];
+        }
+        mv.messageHandlers[name].push(func);
+    };
+    mv.messageHandlers = {};
+
     // this should be restructured with long polling, but I just want
     // to get the interface right first.
     var _Connection = _.create(_Model, {
@@ -187,7 +123,73 @@ var mv = (function (mv, $) {
             _Model._init.call(this);
             this.channel_id = channel_id; // The id of the polling channel for this client
             this.addEventType("badChannel"); // when the channel id isn't right.
-        }
+        },
+        // Starts a long poll which calls message handlers on each message
+        // which comes by.  Uses longPollDriver to do this, and the
+        // 'onError' callback is passed right on to it.
+        longPoll : function (onError) {
+            var self = this;
+            this.longPollDriver(
+                function (messages) {
+                    _(messages).each(function(message) {
+                        var handled = false;
+                        _.each(mv.messageHandlers[message["type"]], function (handler) {
+                            handled = true;
+                            handler(message["args"]);
+                        });
+                        if (!handled) {
+                            console.log("Unknown message type: " + message["type"]);
+                        }
+                    });
+                },
+                onError);
+        },
+
+        // Makes a long polling loop. Calls 'handler' on any list of
+        // messages which come by, else calls 'onError' with an error
+        // message.
+        longPollDriver : function (handler, onError) {
+            var self = this;
+            var _xsrf = mv.getCookie("_xsrf");
+            onError = onError || function() {};
+            function loop() {
+                $.ajax({url : "/ajax/poll",
+                        type : "POST",
+                        dataType : "json",
+                        data : {_xsrf : _xsrf,
+                                channel_id : self.channel_id},
+                        timeout : 30000,
+                        success : function (data) {
+                            if ("messages" in data) {
+                                handler(data["messages"]);
+                                loop();
+                            } else {
+                                if (data.error == "no such channel") {
+                                    self.triggerEvent("badChannel");
+                                }
+                                if (onError(data["error"])) {
+                                    _.delay(loop, 500);
+                                }
+                            }
+                        },
+                        error : function (jqXHR, textStatus, errorThrown) {
+                            if (textStatus == "timeout") {
+                                loop();
+                            } else {
+                                console.log("Long polling error: " + textStatus + " (" + errorThrown + ")");
+                                if (textStatus == "error" && errorThrown == "Forbidden") {
+                                    self.triggerEvent("badChannel");
+                                }
+                                if (onError(textStatus, errorThrown)) {
+                                    _.delay(loop, 2000);
+                                }
+                            }
+                        }
+                       });
+            }
+            loop();
+        },
+
     });
 
     mv.initConnection = function (channel_id) {
@@ -599,7 +601,7 @@ var mv = (function (mv, $) {
 
     mv.InboxModel = _.build(_InboxModel);
 
-    mv.WebModel.addEventHandler("selected", function (model) {
+    mv.WebModel.on("selected", function (model) {
         if (model.currentWeb === undefined) {
             return;
         } else if (mv.InboxModel.currentInboxes[model.currentWeb] === undefined) {
@@ -625,9 +627,15 @@ var mv = (function (mv, $) {
         return parsed;
     };
 
+    mv.encodeHashUrl = function (data) {
+        // TODO
+    };
+
     var months = {
         0 : "Jan", 1 : "Feb", 2 : "Mar", 3 : "Apr", 4 : "May", 5 : "Jun",
         6 : "Jul", 7 : "Aug", 8 : "Sep", 9 : "Oct", 10 : "Nov", 11 : "Dec"};
+
+    // Converts a date object into a short time string
     mv.shortTime = function (date) {
         function pad2(n) {
             var o = "0" + n;
@@ -648,278 +656,20 @@ var mv = (function (mv, $) {
         }
     };
 
+    // Converts a filesize (in bytes) to a sensible size description
+
+    mv.sensibleSize = function (size) {
+        size = parseInt(size);
+        var sensibleSize;
+        if (size < 1024/10) {
+            sensibleSize = size + " B";
+        } else if (size < 1024*1024/10) {
+            sensibleSize = (size/1024).toPrecision(2) + " kB";
+        } else {
+            sensibleSize = (size/1024/1024).toPrecision(2) + " MB";
+        }
+    };
+
     return mv;
 })(window.my || {}, jQuery);
 
-
-// stuff to tie into the DOM
-
-jQuery(function ($) {
-    mv.initConnection($('#poll_info_form').find('input[name="channel_id"]').val());
-
-    mv.Connection.addEventHandler("badChannel", function () {
-        window.location.reload();
-    });
-
-    function errorHandler(error) {
-        $("#polldest").append("<div><em>error: "+error+"</em></div>");
-        return true;
-    }
-
-    mv.addMessageHandler("TextMessage", function(args) {
-        $("#polldest").append("<div>" + args["user"] + ": " + args["m"] + "</div>");
-    });
-
-    mv.longPoll(errorHandler);
-
-    $('#test_form').submit(function(e) {
-        mv.rpc("test", "hello", {"m" : $('#test_form').find('input[name="m"]').val()},
-               function (res) {
-                   $("#polldest").append("<div>rpc returned: " + res + "</div>");
-               },
-               function (err,exc) {
-                   $("#polldest").append("<div>rpc error! " + err + ", " + JSON.stringify(exc) + "</div>");
-               });
-        return false;
-    });
-
-    window.onhashchange = function () {
-        mv.WebModel.currentWeb = undefined;
-        mv.WebModel.pullWebs();
-    };
-
-    mv.WebModel.addEventHandler(["updated", "selected", "deselected"], function (model) {
-        if (model.currentWeb === undefined) {
-            var webname = "(no web)";
-        } else {
-            var webname = model.knownWebs[model.currentWeb];
-        }
-        $("[data-webname]").text(webname);
-        $('#rename_web_form [name="newwebname"]').val(webname);
-        redrawInbox(model.currentWeb);
-    });
-
-    mv.WebModel.addEventHandler(["updated", "deselected"], function (model) {
-        var el = $("#web_selector");
-        el.empty();
-        if (model.currentWeb === undefined) {
-            //el.append($("<option/>").attr("value", -1).text("-- web --"));
-        }
-        _.each(model.knownWebs, function (value, key) {
-            var opt = $("<a/>").attr("href", "#" + value).text(value);
-            var edit = $("<a/>").attr("href", "#").addClass("webEditButton").text("edit");
-            var li = $("<li/>").append(edit).append(opt);
-            el.append(li);
-            opt.on("click", function() {
-                mv.WebModel.setCurrentWeb(key);
-            });
-            edit.on("click", function() {
-                var newwebname = prompt("New name for the web", value);
-                if (newwebname) {
-                    mv.WebModel.renameWeb(key, newwebname,
-                                          function (res) {
-                                              if (!res) {
-                                                  alert("There is already a web with that name.");
-                                              }
-                                          });
-                }
-                return false;
-            });
-        });
-    });
-
-    $("#add_web").click(function () {
-        var webname = prompt("Name for a new web");
-        mv.WebModel.addWeb(webname,
-                           function (res) {
-                               if (!res) {
-                                   alert("There is already a web with that name.");
-                               }
-                           });
-        return false;
-    });
-    $("#rename_web").click(function () {
-        if (mv.WebModel.currentWeb === undefined) {
-            alert("Select a web to rename first.");
-        } else {
-            var webname = prompt("Name for a new web");
-            mv.WebModel.renameWeb(mv.WebModel.currentWeb, webname,
-                                  function (res) {
-                                      if (!res) {
-                                          alert("There is already a web with that name.");
-                                      }
-                                  });
-        }
-        return false;
-    });
-
-    mv.UserModel.addEventHandler("updated", function () {
-        $("div[data-avatar]").each(function () {
-            var $d = $(this);
-            $d.empty();
-            var user = mv.UserModel.knownUsers[$d.attr("data-avatar")];
-            if (user !== undefined) {
-                $d.append($("<img/>").attr("src", user.avatarUrl()));
-            }
-        });
-    });
-
-    // dealing with file uploads
-
-    var fileProgressBars = {};
-
-    mv.FileUploadModel.addEventHandler("numChanged", function (model, num) {
-        if (num) {
-            $("[data-num-uploads]").text("(" + num + ")");
-        } else {
-            $("[data-num-uploads]").text("");
-        }
-    });
-
-    mv.FileUploadModel.addEventHandler("updated", function (model, fileState) {
-        if (fileState.aborted) {
-            return;
-        }
-        console.log("updated " + fileState.id);
-        var progress;
-        if (!_.has(fileProgressBars, fileState.id)) {
-            progress = $("<div/>").prependTo("#file_upload_notifications").fileUploadBar({
-                fileState : fileState,
-                stopped : function (file_id) {
-                    mv.FileUploadModel.abortUpload(fileState.id);
-                    delete fileProgressBars[fileState.id];
-                    progress.remove();
-                }
-            });
-            fileProgressBars[fileState.id] = progress;
-        } else {
-            progress = fileProgressBars[fileState.id];
-        }
-        progress.fileUploadBar("filestate", fileState);
-    });
-    $("#fileupload").find('input[type="submit"]').hide();
-
-    $.widget("mv.fileUploadBar", {
-        options : {
-            fileState : undefined
-        },
-        _create : function() {
-            this.element.addClass("fileUploadBar");
-            this.element.append($("<div/>").addClass("fileUploadFilename"));
-            this.element.append($("<div/>").addClass("fileUploadSize"));
-            $("<progress/>").appendTo(this.element).attr("max", 100);
-            this.element.append($("<div/>").addClass("fileUploadPercent"));
-            this.element.append($("<div/>").addClass("fileUploadError").text("Upload error"));
-            this.element.append($("<div/>").addClass("fileUploadUuid"));
-            var stopButton = $("<a/>").attr("href", "#").text("X");
-            var self = this;
-            stopButton.on("click", function () {
-                self._trigger("stopped", null, {fileId : self.options.fileState.id});
-            });
-            this.element.append($("<div/>").addClass("fileUploadRemove").append(stopButton));
-            this._update();
-        },
-        _update : function () {
-            this.element.find(".fileUploadFilename").text(this.options.fileState.name).attr("title", this.options.fileState.name);
-            var size = this.options.fileState.size;
-            var sensibleSize;
-            if (size < 1024/10) {
-                sensibleSize = size + " B";
-            } else if (size < 1024*1024/10) {
-                sensibleSize = (size/1024).toPrecision(2) + " kB";
-            } else {
-                sensibleSize = (size/1024/1024).toPrecision(2) + " MB";
-            }
-            this.element.find(".fileUploadSize").text(sensibleSize);
-            var percentage = Math.round(this.options.fileState.progress*100);
-            if (percentage == 100) {
-                //indeterminate
-                this.element.find("progress").toggle(!this.options.fileState.done).removeAttr("value");
-            } else {
-                this.element.find("progress").toggle(!this.options.fileState.done).val(percentage);
-            }
-            this.element.find(".fileUploadPercent").toggle(!this.options.fileState.done).text(percentage+"%");
-            this.element.find(".fileUploadError").toggle(this.options.fileState.error);
-            this.element.find(".fileUploadUuid").toggle(this.options.fileState.done).text(this.options.fileState.uuid);
-        },
-        filestate : function (fileState) {
-            if (fileState === undefined) {
-                return this.options.fileState;
-            } else {
-                this.options.fileState = fileState;
-                this._update();
-            }
-        }
-    });
-    $("#fileupload").find(":file").change(function () {
-        if (mv.WebModel.currentWeb === undefined) {
-            alert("Select a web first");
-            $('#fileupload').find(":file").val('');
-            return;
-        } 
-        if (!$('#fileupload').find(":file").val()) {
-            return;
-        }
-        _.each($('#fileupload').find(":file")[0].files, function (file) {
-            mv.FileUploadModel.uploadFile(mv.WebModel.currentWeb, file);
-        });
-        $("#fileupload").find(":file").val('');
-    });
-
-    function redrawInbox (web_id) {
-        var el = $("#inbox");
-        el.empty();
-        $("<h2/>").text("Inbox for " + mv.WebModel.knownWebs[web_id]).appendTo(el);
-        _.each(mv.InboxModel.currentInboxes[web_id], function (uuid) {
-            var p = $("<p/>").attr("data-blob-webid", web_id).attr("data-blob-uuid", uuid).text("loading...").appendTo(el);
-        });
-        updateBlobElements();
-    }
-    
-    mv.InboxModel.addEventHandler("updated", function (model, web_id) {
-        redrawInbox(web_id);
-    });
-
-    mv.BlobModel.addEventHandler("updated", function (model, web_id, blob_id) {
-        updateBlobElements();
-    });
-    //mv.UserModel.addEventHandler("updated", function (model) {
-    //updateBlobElements();
-    //});
-
-    function updateBlobElements () {
-        $("[data-blob-uuid]").each(function () {
-            drawBlob(this);
-        });
-    }
-
-    function drawBlob (e) {
-        e = $(e);
-        var web_id = e.attr("data-blob-webid");
-        var uuid = e.attr("data-blob-uuid");
-        var blob = mv.BlobModel.getBlob(web_id, uuid);
-        if (blob !== undefined) {
-            var srels = mv.BlobModel.getRelationsForSubject(web_id, uuid);
-            var filename = uuid;
-            _.each(srels, function (rel) {
-                if (rel.type == "filename") {
-                    filename = rel.payload || filename;
-                }
-            });
-            var url = "/blob/" + uuid;
-            if (filename != uuid) {
-                url += "/" + filename;
-            }
-            e.empty();
-            var editor = mv.UserModel.knownUsers[blob.editor_email];
-            var editor_name = (editor !== undefined && editor.first_name) || blob.editor_email;
-            e.append($("<span/>").text(editor_name));
-            e.append(" | ");
-            e.append($("<a/>").attr("href", url).attr("target", "_blank").text(filename));
-            e.append(" ");
-            e.append($("<span/>").text(mv.shortTime(blob.date_created)));
-        }
-    }
-    
-
-});
