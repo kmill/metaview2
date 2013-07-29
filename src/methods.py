@@ -78,12 +78,13 @@ class BlobsRPC(RPCServable) :
             if uuid and uuid not in seen :
                 seen.add(uuid)
                 b = models.Blob.get_by_uuid(uuid)
-                with_content = b.content_type.startswith("relation:")
-                blobs.append(self.blob_as_dict(b, with_content=with_content))
-                for rel in relations.get_relations_for_subject(web_id, uuid) :
-                    to_process.append(rel['ruuid'])
-                    to_process.append(rel['ouuid'])
-                for rel in relations.get_relations_for_object(web_id, uuid) :
-                    to_process.append(rel)
+                if b != None :
+                    with_content = b.content_type.startswith("relation:")
+                    blobs.append(self.blob_as_dict(b, with_content=with_content))
+                    for rel in relations.get_relations_for_subject(web_id, uuid) :
+                        to_process.append(rel['ruuid'])
+                        to_process.append(rel['ouuid'])
+                    for rel in relations.get_relations_for_object(web_id, uuid) :
+                        to_process.append(rel)
         return blobs
 

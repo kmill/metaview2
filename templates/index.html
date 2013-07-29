@@ -19,19 +19,35 @@
 
 <!-- expects data.webid and data.blobid -->
 <script type="text/template" template-name="blob-wrapper">
-<div class="blob-wrapper" data-blob-webid="<%= data.webid %>" data-blob-uuid="<%= data.uuid %>">
-  <% if (data.content === undefined) { %>
-  <em>loading...</em>
-  <% } else { %>
-  <%= data.content %>
-  <% } %>
+<div id="<%= data.id %>" class="blob-wrapper">
+  <div class="blob-wrapped-dest">
+    <em>loading...</em>
+  </div>
 </div>
 </script>
 
 <script type="text/template" template-name="blob-generic">
 <div class="blob">
-<div class="blob_content">
-</div>
+  <div class="blob-header">
+    <div class="blob-header-left">
+      <%= data.created %>
+    </div>
+    <div class="blob-header-right">
+      <span class="blob-actions">
+      actions:
+      <a>edit</a>
+      </span>
+    </div>
+    <div class="clear"></div>
+  </div>
+  <div class="blob-body">
+    <div class="blob-content">
+      <p><a href="<%= data.rawUrl %>" target="_blank"><%- data.titleish %></a></p>
+    </div>
+    <div class="blob-footer">
+      <%= data.editor %> / <%= data.uuid %>
+    </div>
+  </div>
 </div>
 </script>
 
