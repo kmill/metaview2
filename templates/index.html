@@ -30,7 +30,7 @@
 <div class="blob">
   <div class="blob-header">
     <div class="blob-header-left">
-      <%= data.created %>
+      <%- data.created %>
     </div>
     <div class="blob-header-right">
       <span class="blob-actions">
@@ -45,7 +45,7 @@
       <p><a href="<%= data.rawUrl %>" target="_blank"><%- data.titleish %></a></p>
     </div>
     <div class="blob-footer">
-      <%= data.editor %> / <%= data.uuid %>
+      <span user-tooltip="<%- data.editor %>"><%- data.editor %></span> / <%= data.uuid %> / <%- data.content_type %>
     </div>
   </div>
 </div>
@@ -57,7 +57,7 @@
 <div id="body">
   <div id="header">
     <div class="header_left">
-      Web: <a href="#" data-dropdown="#dropdown-webs"><span data-webname></span></a>
+      Web: <span id="web-selector">(no web)</span>
     </div>
     <div class="header_right">
       <form id="fileupload" method="post" enctype="multipart/form-data" action="/upload">
@@ -66,42 +66,27 @@
         <input type="submit" value="Upload"/>
       </form>
       <a href="#" data-dropdown="#dropdown-upload-notifications">Uploads<span class="uploadNumInProgress" data-num-uploads></span></a> |
-      <a href="#" data-dropdown="#dropdown-user">{{ handler.current_user.email }} <div class="user-avatar" data-avatar="{{ handler.current_user.email }}"></div></a>
+      <a href="#" data-dropdown="#dropdown-user">{{ handler.current_user.first_name + " " + handler.current_user.last_name}} <div class="user-avatar" data-avatar="{{ handler.current_user.email }}"></div></a>
     </div>
     <div class="clear"></div>
   </div>
   <div id="content">
-    <div id="inbox">
-    </div>
-
-    <div id="blob-view">
-    </div>
-
-    <h2>Poll test</h2>
-    <div id="polldest">
-    </div>
-
-<form id="test_form">
-  <input type="text" name="m"/>
-  <input type="submit"/>
-</form>
-
-
-<form id="poll_info_form">
-  {% module xsrf_form_html() %}
-  <input type="hidden" name="channel_id" value="{{ channel_id }}"/>
-</form>
-
-
-
+    
   </div>
   <div id="footer">
     Metaview2 (very experimental) &mdash; Kyle Miller
   </div>
 </div>
 
+<form id="poll_info_form">
+  {% module xsrf_form_html() %}
+  <input type="hidden" name="channel_id" value="{{ channel_id }}"/>
+</form>
+
 <div id="dropdown-user" class="dropdown dropdown-tip dropdown-anchor-right">
   <ul class="dropdown-menu">
+    <li style="padding:1em 1em 0 1em;"><span style="padding:0;font-size: 122%; font-family: sans-serif;margin: 2em 1em 1em 1em;">{{ handler.current_user.first_name + " " + handler.current_user.last_name}}</span></li>
+    <li style="padding:1em 1em 1em 1em;"><span style="padding:0;font-family: sans-serif; margin: 0 1em 2em 1em;">{{ handler.current_user.email }}</span></li>
     <li><a href="/logout">Log out</a></li>
   </ul>
 </div>
@@ -116,7 +101,8 @@
 
 <div id="dropdown-upload-notifications" class="dropdown dropdown-tip dropdown-anchor-right">
   <div class="dropdown-panel">
-    <div id="file_upload_notifications"></div>
+    <div id="file_upload_notifications">
+    </div>
   </div>
 </div>
 

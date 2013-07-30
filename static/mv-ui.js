@@ -12,6 +12,140 @@ var mvui = (function (mvui) {
     return mvui.templates[name](data);
   };
 
+  var _View = {
+    _init : function () {
+      mv.eventify(this);
+      this.isDestroyed = false;
+    },
+    destroy : function () {
+      if (this.isDestroyed) {
+        throw new Error("Cannot destroy a view twice.");
+      }
+      this.isDestroyed = true;
+    },
+    checkIfDestroyed : function () {
+      if (this.isDestroyed) {
+        throw "removeHandler";
+      }
+    }
+  };
+
+  mvui._WebSelectorView = _.create(_View, {
+    _init : function (el) {
+      _View._init.apply(this);
+      this.el = $(el);
+      this.renderSkeleton();
+      mv.WebModel.on(["updated", "selected", "deselected"], _.im(this, 'redraw'));
+      _.defer(_.im(this, 'redraw'));
+
+      $("#add_web").click(function (e) {
+        e.preventDefault();
+        var webname = prompt("Name for a new web");
+        mv.WebModel.addWeb(webname,
+                           function (res) {
+                             if (!res) {
+                               alert("There is already a web with that name.");
+                             }
+                           });
+        return false;
+      });
+    },
+    renderSkeleton : function () {
+      this.el.html('<a href="#" data-dropdown="#dropdown-webs"><span data-webname>(no web)</span></a>');
+    },
+    redraw : function () {
+      var that = this;
+      mv.WebModel.getWebs(function (webs) {
+        console.log("redraw");
+        // update thing which shows the current web
+        var webname;
+        var currentWeb = mv.WebModel.getCurrentWeb();
+        if (currentWeb === undefined) {
+          webname = "(no web)";
+        } else {
+          webname = currentWeb.name;
+        }
+        that.el.find("[data-webname]").text(webname);
+
+        // update dropdown
+        var sel = $("#web_selector");
+        sel.empty();
+        _.each(webs, function (web) {
+          var opt = $('<a/>').attr("href", "#" + web.name).text(web.name);
+          var edit = $('<a/>').attr('href', '#').addClass("webEditButton").text("edit");
+          var li = $('<li/>').append(edit).append(opt);
+          sel.append(li);
+//          opt.on("click", function () {
+//            mv.WebModel.setCurrentWeb(web.id);
+//          });
+          edit.on("click", function (e) {
+            e.preventDefault();
+            var newwebname = prompt("New name for the web", web.name);
+            if (newwebname) {
+              mv.WebModel.renameWeb(web.id, newwebname,
+                                    function (res) {
+                                      if (!res) {
+                                        alert("There is already a web with that name.");
+                                      }
+                                    });
+            }
+            return false;
+          });
+        });
+      });
+    }
+  });
+
+  mvui._WebViews = _.create(_View, {
+    _init : function () {
+      _View._init.apply(this);
+      mv.WebModel.on("selected", _.im(this, 'selectWeb'));
+      mv.WebModel.on("deselected", _.im(this, 'deselectWeb'));
+      mv.WebModel.on("updated", _.im(this, 'updateWebs'));
+      this.webViews = {};
+    },
+    selectWeb : function () {
+      this.checkIfDestroyed();
+      var web = mv.WebModel.getCurrentWeb();
+      if (!_.has(this.webViews, web.id)) {
+        this.makeWebView(web);
+      }
+      _.each(this.webViews, function (view) {
+        view.hide();
+      });
+      this.webViews[web.id].show();
+    },
+    deselectWeb : function () {
+      this.checkIfDestroyed();
+      var that = this;
+      mv.WebModel.getWebs(function (webs) {
+        _.each(_.keys(this.webViews), function (id) {
+          if (!_.has(webs, id)) {
+            that.removeWebView(id);
+          }
+        });
+      });
+    },
+    updateWebs : function (model, webs) {
+      this.checkIfDestroyed();
+      _.each(this.webViews, function (view, id) {
+        view.text(webs[id].name);
+      });
+    },
+    makeWebView : function (web) {
+      var view = $('<div class="web-view"/>').hide().text(web.name);
+      this.webViews[web.id] = view;
+      $("#content").append(view);
+    },
+    removeWebView : function (id) {
+      var view = this.webViews[id];
+      if (view !== undefined) {
+        delete this.webViews[id];
+        view.remove();
+      }
+    }
+  });
+
   var _BlobView = {
     _init : function (webid, uuid) {
       mv.eventify(this);
@@ -39,6 +173,7 @@ var mvui = (function (mvui) {
           var data = {
             created : mv.shortTime(blob.date_created),
             uuid : blob.uuid,
+            content_type : blob.content_type,
             editor : blob.editor_email,
             titleish : titleish,
             rawUrl : "/blob/" + blob.uuid
@@ -128,113 +263,78 @@ jQuery(function ($) {
     window.location.reload();
   });
 
-  function errorHandler(error) {
-    $("#polldest").append("<div><em>error: "+error+"</em></div>");
+  mv.Connection.longPoll(function (error) {
+    console.log("long poll error: " + error);
     return true;
-  }
-
-  mv.addMessageHandler("TextMessage", function(args) {
-    $("#polldest").append(template("test-message-entry", {args:args}));
   });
 
-  mv.Connection.longPoll(errorHandler);
+  var WebViews = _.build(mvui._WebViews);
+  var WebSelectorView = _.build(mvui._WebSelectorView, $("#web-selector"));
 
-  $('#test_form').submit(function(e) {
-    mv.rpc("test", "hello", {"m" : $('#test_form').find('input[name="m"]').val()},
-           function (res) {
-             $("#polldest").append("<div>rpc returned: " + res + "</div>");
-           },
-           function (err,exc) {
-             $("#polldest").append("<div>rpc error! " + err + ", " + JSON.stringify(exc) + "</div>");
-           });
-    return false;
-  });
+  // mv.WebModel.on(["updated", "deselected"], function (model) {
+  //   _.seq(
+  //     _.im(model, 'getWebs'),
+  //     function (knownWebs) {
+  //       var el = $("#web_selector");
+  //       el.empty();
+  //       var currentWeb = mv.WebModel.getCurrentWeb();
+  //       _.each(knownWebs, function (web) {
+  //         var opt = $("<a/>").attr("href", "#" + web.name).text(web.name);
+  //         var edit = $("<a/>").attr("href", "#").addClass("webEditButton").text("edit");
+  //         var li = $("<li/>").append(edit).append(opt);
+  //         el.append(li);
+  //         opt.on("click", function() {
+  //           mv.WebModel.setCurrentWeb(web.id);
+  //         });
+  //         edit.on("click", function() {
+  //           var newwebname = prompt("New name for the web", web.name);
+  //           if (newwebname) {
+  //             mv.WebModel.renameWeb(web.id, newwebname,
+  //                                   function (res) {
+  //                                     if (!res) {
+  //                                       alert("There is already a web with that name.");
+  //                                     }
+  //                                   });
+  //           }
+  //           return false;
+  //         });
+  //       });
+  //     })();
+  // });
 
-  window.onhashchange = function () {
-    console.log("hash change");
-    mv.WebModel.autoselectWeb(true);
-  };
+  // mv.WebModel.pullWebs();
 
-  mv.WebModel.on(["updated", "selected", "deselected"], function (model) {
-    var webname;
-    var currentWeb = mv.WebModel.getCurrentWeb();
-    if (currentWeb === undefined) {
-      webname = "(no web)";
-    } else {
-      webname = currentWeb.name;
-    }
-    $("[data-webname]").text(webname);
-    $('#rename_web_form [name="newwebname"]').val(webname);
-    redrawInbox(currentWeb);
-  });
 
-  mv.WebModel.on(["updated", "deselected"], function (model) {
-    _.seq(
-      _.im(model, 'getWebs'),
-      function (knownWebs) {
-        var el = $("#web_selector");
-        el.empty();
-        var currentWeb = mv.WebModel.getCurrentWeb();
-        _.each(knownWebs, function (web) {
-          var opt = $("<a/>").attr("href", "#" + web.name).text(web.name);
-          var edit = $("<a/>").attr("href", "#").addClass("webEditButton").text("edit");
-          var li = $("<li/>").append(edit).append(opt);
-          el.append(li);
-          opt.on("click", function() {
-            mv.WebModel.setCurrentWeb(web.id);
-          });
-          edit.on("click", function() {
-            var newwebname = prompt("New name for the web", web.name);
-            if (newwebname) {
-              mv.WebModel.renameWeb(web.id, newwebname,
-                                    function (res) {
-                                      if (!res) {
-                                        alert("There is already a web with that name.");
-                                      }
-                                    });
-            }
-            return false;
-          });
-        });
-      })();
-  });
-
-  mv.WebModel.pullWebs();
-
-  $("#add_web").click(function () {
-    var webname = prompt("Name for a new web");
-    mv.WebModel.addWeb(webname,
-                       function (res) {
-                         if (!res) {
-                           alert("There is already a web with that name.");
-                         }
-                       });
-    return false;
-  });
-  $("#rename_web").click(function () {
-    if (mv.WebModel.currentWebId === undefined) {
-      alert("Select a web to rename first.");
-    } else {
-      var webname = prompt("Name for a new web");
-      mv.WebModel.renameWeb(mv.WebModel.currentWebId, webname,
-                            function (res) {
-                              if (!res) {
-                                alert("There is already a web with that name.");
-                              }
-                            });
-    }
-    return false;
-  });
-
-  mv.UserModel.on("updated", function () {
+  mv.UserModel.getUsers(function (users) {
     $("div[data-avatar]").each(function () {
       var $d = $(this);
       $d.empty();
-      var user = mv.UserModel.knownUsers[$d.attr("data-avatar")];
+      var user = users[$d.attr("data-avatar")];
       if (user !== undefined) {
         $d.append($("<img/>").attr("src", user.avatarUrl()));
       }
     });
+  });
+  $(document).tooltip({
+    items : "[user-tooltip]",
+    content : function () {
+      var el = $(this);
+      var id = _.uniqueId("avatar_");
+      var r = $('<div class="user-tooltip"/>').attr('id', id);
+      mv.UserModel.getUser(el.attr('user-tooltip'), function (user) {
+        var avatar = $('<div class="user-tooltip-avatar"/>');
+        avatar.append($('<img/>').attr('src', user.avatarUrl()));
+        var container = $('<div class="user-tooltip-top"/>');
+        container.append(avatar);
+        container.append(
+          $('<div class="user-tooltip-side"/>')
+          .append($('<div class="user-tooltip-name"/>').text(user.first_name + " " + user.last_name))
+          .append($('<div class="user-tooltip-email"/>').text(user.email))
+        );
+        r.append(container);
+      });
+      return r;
+    }
   });
 
   // dealing with file uploads
@@ -331,6 +431,9 @@ jQuery(function ($) {
   });
 
   function redrawInbox (web) {
+    if (web === undefined) {
+      return;
+    }
     var el = $("#inbox");
     el.empty();
     $("<h2/>").text("Inbox for " + web.name).appendTo(el);

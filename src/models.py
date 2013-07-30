@@ -52,6 +52,12 @@ class UserWebAccess(object) :
         web_id = web.id if isinstance(web, Web) else web
         return None != DB.execute("select web_id from user_web_access where user_id=? and web_id=?", (user_id, web_id)).fetchone()
     @staticmethod
+    def users_for_web(web) :
+        web_id = web.id if isinstance(web, Web) else web
+        print "***",web_id
+        return [User.get_by_id(row['user_id'])
+                for row in DB.execute('select user_id from user_web_access where web_id=?', (web_id,))]
+    @staticmethod
     def remove_for_user(web, user) :
         with DB :
             DB.execute("delete from user_web_access where web_id=? and user_id=?",

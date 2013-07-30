@@ -22,7 +22,7 @@ _.mixin({
   // Creates a new object from a prototype, extending the new object
   // with the optional 'props' argument.
   create : function (o, props) {
-    function F() { _.extend(this, props); }
+    function F() { this._super = o; _.extend(this, props); }
     F.prototype = o;
     return new F();
   },
@@ -118,6 +118,11 @@ var mv = (function (mv, $) {
       }
       return handlers;
     }
+    function removeHandlers(name, toRemove) {
+      if (toRemove.length > 0) {
+        eventHandlers[name] = _.without.apply(_, [eventHandlers[name]].concat(toRemove));
+      }
+    }
     // Adds a type of event which can be handled.
     o.addEventType = function (name) {
       eventHandlers[name] = eventHandlers[name] || [];
@@ -133,13 +138,24 @@ var mv = (function (mv, $) {
       }
       return o;
     };
-    // Triggers an event with some arguments.
+    // Triggers an event with some arguments.  The event is removed if
+    // it throws the string "removeHandler".
     o.trigger = function (name) {
       var args = _.rest(arguments, 1);
       args.unshift(this);
+      var toRemove = [];
       _.each(getHandlers(name), function (handler) {
-        handler[0].apply(handler[1], args);
+        try {
+          handler[0].apply(handler[1], args);
+        } catch (x) {
+          if (x === "removeHandler") {
+            toRemove.push(handler);
+          } else {
+            throw x;
+          }
+        }
       });
+      removeHandlers(name, toRemove);
       return o;
     };
     return o;
@@ -253,6 +269,63 @@ var mv = (function (mv, $) {
     mv.Connection = _.build(_Connection, channel_id);
   };
 
+  // Fragment model
+  // --------------
+
+  // Support for maintaining the url fragment
+  var _FragmentModel = _.create(_Model, {
+    _init : function () {
+      _Model._init.apply(this);
+      this.addEventType("updated");
+      window.onhashchange = _.im(this, 'hashChanged');
+      this.hashChanged();
+    },
+    hashChanged : function () {
+      this.parsed = this.parse($(window.location).attr('hash').slice(1));
+      this.trigger("updated", this.parsed);
+    },
+    changeFragment : function (d) {
+      this.parsed = d;
+      $(window.location).attr('hash', '#' + this.encode(d));
+    },
+    getPart : function (key) {
+      if (this.parsed && _.has(this.parsed, key)) {
+        return this.parsed[key];
+      } else {
+        return undefined;
+      }
+    },
+    parse : function (hash) {
+      var parsed = {};
+      _.each(hash.split("&"), function (part) {
+        if (part.length > 0) {
+          var subparts = part.split("=", 2);
+          if (subparts.length == 1) {
+            parsed["web"] = decodeURIComponent(subparts[0]);
+          } else {
+            parsed[subparts[0]] = decodeURIComponent(subparts[1]);
+          }
+        }
+      });
+      return parsed;
+    },
+    encode : function (d) {
+      var out = [];
+      var keys = _.keys(d);
+      if (_.has(d, "web")) {
+        keys = _.without(keys, "web");
+        out.push(encodeURIComponent(d.web));
+      }
+      keys.sort();
+      _.each(keys, function (key) {
+        out.push(key + "=" + encodeURIComponent(d[key]));
+      });
+      return out.join("&");
+    }
+  });
+
+  mv.FragmentModel = _.build(_FragmentModel);
+
   // Webs
   // ----
 
@@ -271,6 +344,7 @@ var mv = (function (mv, $) {
       this.addEventType("deselected"); // when currentWeb ends up pointing to nothing
       this.addEventType("selected"); // when currentWeb is changed
       mv.addMessageHandler("WebChangeMessage", this.WebChangeMessageHandler, this);
+      mv.FragmentModel.on("updated", _.im(this, 'fragmentChanged'));
     },
     WebChangeMessageHandler : function (args) {
       var web;
@@ -278,6 +352,7 @@ var mv = (function (mv, $) {
         // renamed or created
         web = this.knownWebs[args.web_id] || _.create(_Web, {id : args.web_id});
         web.name = args.web_name;
+        this.knownWebs[web.id] = web;
       } else {
         delete this.knownWebs[args.web_id];
         if (args.web_id == this.currentWebId) {
@@ -285,7 +360,7 @@ var mv = (function (mv, $) {
           this.trigger("deselected");
         }
       }
-      this.trigger("updated");
+      this.trigger("updated", this.knownWebs);
     },
     // Gets all of the known webs.  If a callback is supplied, then
     // the webs are supplied to the callback possibly asynchronously.
@@ -302,11 +377,15 @@ var mv = (function (mv, $) {
       }
       return undefined;
     },
-    autoselectWeb : function (unselectOld) {
-      var that = this;
-      if (unselectOld) {
-        that.currentWebId = undefined;
+    fragmentChanged : function (model, d) {
+      var currentWeb = this.getCurrentWeb();
+      if (currentWeb && currentWeb.name !== d.web || currentWeb === undefined && d.web !== undefined) {
+        this.currentWebId = undefined;
+        this.autoselectWeb();
       }
+    },
+    autoselectWeb : function () {
+      var that = this;
       _.seq(
         _.im(that, 'getWebs'),
         function (webs) {
@@ -315,7 +394,7 @@ var mv = (function (mv, $) {
             that.currentWebId = _.first(_.keys(webs));
           }
           if (that.currentWebId === undefined) {
-            var web = that.getWebByName(mv.parseHashUrl().web);
+            var web = that.getWebByName(mv.FragmentModel.getPart('web'));
             that.currentWebId = web && web.id; // sets undefined if no such web
           }
           if (that.currentWebId === undefined && mv.getCookie("default_web_id")) {
@@ -326,8 +405,12 @@ var mv = (function (mv, $) {
           }
           if (that.currentWebId !== undefined) {
             that.trigger("selected");
+            if (that.getCurrentWeb().name !== mv.FragmentModel.getPart('web')) {
+              mv.FragmentModel.changeFragment({web : that.getCurrentWeb().name});
+            }
           } else {
-            that.trigger("unselected");
+            that.trigger("deselected");
+            mv.FragmentModel.changeFragment({});
           }
         }
       )();
@@ -346,7 +429,7 @@ var mv = (function (mv, $) {
                  that.knownWebs[id] = web;
                });
                that.autoselectWeb();
-               that.trigger("updated");
+               that.trigger("updated", that.knownWebs);
 
                _.each(that.getWebsCallbacks, function (callback) {
                  callback(_.values(that.knownWebs));
@@ -365,7 +448,7 @@ var mv = (function (mv, $) {
     // Set the current web
     setCurrentWeb : function (web_id) {
       web_id = +web_id;
-      if (this.currentWebId == web_id) {
+      if (this.currentWebId == web_id || web_id === undefined) {
         return;
       }
       if (!_.has(this.knownWebs, web_id)) {
@@ -409,19 +492,33 @@ var mv = (function (mv, $) {
   var _UserModel = _.create(_Model, {
     _init : function () {
       _Model._init.call(this);
-      this.knownUsers = undefined; // email -> User
+      this.knownUsers = {}; // email -> User
+      this.hasPulled = false;
       this.pullUsersCallbacks = undefined;
       this.addEventType("updated"); // when knownUsers is generally updated
     },
+    addUser : function (email, first_name, last_name) {
+      if (!_.has(this.knownUsers, email)) {
+        this.knownUsers = _.create(_User, {
+          email : email,
+          first_name : first_name,
+          last_name : last_name
+        });
+      }
+    },
     getUser : function (userEmail, callback) {
-      _.seq(_.im(this, 'getUsers'),
-            function (users) {
-              callback(users[userEmail]);
-            }
-           )();
+      if (_.has(this.knownUsers, userEmail)) {
+        callback(this.knownUsers[userEmail]);
+      } else {
+        _.seq(_.im(this, 'getUsers'),
+              function (users) {
+                callback(users[userEmail]);
+              }
+             )();
+      }
     },
     getUsers : function (callback) {
-      if (this.knownUsers !== undefined) {
+      if (this.hasPulled) {
         callback(this.knownUsers);
       } else if (this.pullUsersCallbacks === undefined) {
         this.pullUsersCallbacks = [callback];
@@ -446,12 +543,12 @@ var mv = (function (mv, $) {
                  });
                  that.knownUsers[userObj.email] = userObj;
                });
-
+               that.hasPulled = true;
                _.each(that.pullUsersCallbacks, function (callback) {
                  callback(that.knownUsers);
                });
                that.pullUsersCallbacks = undefined;
-               that.trigger("updated");
+               that.trigger("updated", that.knownUsers);
              },
              function () {
                _.delay(_.im(that, 'pullUsers'), 5000); // try again?
@@ -800,50 +897,30 @@ var mv = (function (mv, $) {
         this.trigger("updated", args.web_id);
       }
     },
-    pullInbox : function (webid) {
+    pullInbox : function (webid, callback) {
       var self = this;
       mv.rpc("inbox", "get_inbox", {"webid" : webid},
              function (uuids) {
                if (uuids !== null) {
                  self.currentInboxes[webid] = uuids;
-                 mv.BlobModel.getBlobs(webid, uuids);
+                 callback(self.currentInboxes[webid]);
                  self.trigger("updated", webid);
                }
              });
+    },
+    getInbox : function (webid, callback) {
+      if (_.has(this.currentInboxes, webid)) {
+        callback(this.currentInboxes[webid]);
+      } else {
+        this.pullInbox(webid, callback);
+      }
     }
   });
 
   mv.InboxModel = _.build(_InboxModel);
 
-  mv.WebModel.on("selected", function (model) {
-    if (model.currentWebId === undefined) {
-      return;
-    } else if (mv.InboxModel.currentInboxes[model.currentWebId] === undefined) {
-      mv.InboxModel.pullInbox(model.currentWebId);
-    }
-  });
-
   // other stuff
   // -----------
-
-  mv.parseHashUrl = function () {
-    var hash = $(window.location).attr('hash').substr(1);
-    var parsed = {};
-    _.each(hash.split("&"), function (part) {
-      if (part == "") { return; }
-      var subparts = part.split("=", 2);
-      if (subparts.length == 1) {
-        parsed["web"] = decodeURIComponent(subparts[0]);
-      } else {
-        parsed[subparts[0]] = decodeURIComponent(subparts[1]);
-      }
-    });
-    return parsed;
-  };
-
-  mv.encodeHashUrl = function (data) {
-    // TODO
-  };
 
   var months = {
     0 : "Jan", 1 : "Feb", 2 : "Mar", 3 : "Apr", 4 : "May", 5 : "Jun",
