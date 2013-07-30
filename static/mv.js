@@ -22,6 +22,9 @@ _.mixin({
   // Creates a new object from a prototype, extending the new object
   // with the optional 'props' argument.
   create : function (o, props) {
+    if (o === undefined) {
+      throw new TypeError("Cannot extend undefined.");
+    }
     function F() { this._super = o; _.extend(this, props); }
     F.prototype = o;
     return new F();
@@ -286,7 +289,7 @@ var mv = (function (mv, $) {
     },
     changeFragment : function (d) {
       this.parsed = d;
-      $(window.location).attr('hash', '#' + this.encode(d));
+      $(window.location).attr('hash', this.makeFragment(d));
     },
     getPart : function (key) {
       if (this.parsed && _.has(this.parsed, key)) {
@@ -321,6 +324,9 @@ var mv = (function (mv, $) {
         out.push(key + "=" + encodeURIComponent(d[key]));
       });
       return out.join("&");
+    },
+    makeFragment : function (d) {
+      return '#' + this.encode(d);
     }
   });
 
@@ -642,10 +648,9 @@ var mv = (function (mv, $) {
                    that.pullCallbacks.push(val);
                  }
                });
+               that.doingPull = false;
                if (_.size(that.pullCallbacks) > 0) {
                  that.pullBlobs();
-               } else {
-                 that.doingPull = false;
                }
              },
              function () {
@@ -699,7 +704,7 @@ var mv = (function (mv, $) {
         this.pullCallbacks.push([web_id, blob_uuid, callback]);
         if (!this.doingPull) {
           if (!inhibitPull) {
-            this.pullBlobs();
+            _.defer(_.im(this, 'pullBlobs'));
           }
         }
       }

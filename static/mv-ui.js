@@ -1,6 +1,8 @@
 // mv-ui.js
 // handling the ui layer
 
+/*global _ $ jQuery */
+
 "use strict";
 
 var mvui = (function (mvui) {
@@ -13,9 +15,10 @@ var mvui = (function (mvui) {
   };
 
   var _View = {
-    _init : function () {
+    _init : function (el) {
       mv.eventify(this);
       this.isDestroyed = false;
+      this.el = $(el);
     },
     destroy : function () {
       if (this.isDestroyed) {
@@ -27,13 +30,18 @@ var mvui = (function (mvui) {
       if (this.isDestroyed) {
         throw "removeHandler";
       }
+    },
+    hide : function () {
+      this.el.hide();
+    },
+    show : function () {
+      this.el.show();
     }
   };
 
   mvui._WebSelectorView = _.create(_View, {
     _init : function (el) {
-      _View._init.apply(this);
-      this.el = $(el);
+      _View._init.apply(this, el);
       this.renderSkeleton();
       mv.WebModel.on(["updated", "selected", "deselected"], _.im(this, 'redraw'));
       _.defer(_.im(this, 'redraw'));
@@ -54,6 +62,7 @@ var mvui = (function (mvui) {
       this.el.html('<a href="#" data-dropdown="#dropdown-webs"><span data-webname>(no web)</span></a>');
     },
     redraw : function () {
+      this.checkIfDestroyed();
       var that = this;
       mv.WebModel.getWebs(function (webs) {
         console.log("redraw");
@@ -97,8 +106,8 @@ var mvui = (function (mvui) {
   });
 
   mvui._WebViews = _.create(_View, {
-    _init : function () {
-      _View._init.apply(this);
+    _init : function (el) {
+      _View._init.apply(this, el);
       mv.WebModel.on("selected", _.im(this, 'selectWeb'));
       mv.WebModel.on("deselected", _.im(this, 'deselectWeb'));
       mv.WebModel.on("updated", _.im(this, 'updateWebs'));
@@ -111,9 +120,9 @@ var mvui = (function (mvui) {
         this.makeWebView(web);
       }
       _.each(this.webViews, function (view) {
-        view.hide();
+        view.el.hide();
       });
-      this.webViews[web.id].show();
+      this.webViews[web.id].el.show();
     },
     deselectWeb : function () {
       this.checkIfDestroyed();
@@ -128,36 +137,81 @@ var mvui = (function (mvui) {
     },
     updateWebs : function (model, webs) {
       this.checkIfDestroyed();
-      _.each(this.webViews, function (view, id) {
-        view.text(webs[id].name);
-      });
+//       _.each(this.webViews, function (view, id) {
+//         view.text(webs[id].name);
+//       });
     },
     makeWebView : function (web) {
-      var view = $('<div class="web-view"/>').hide().text(web.name);
-      this.webViews[web.id] = view;
-      $("#content").append(view);
+      var container = $('<div class="web-view"/>').hide();
+      this.webViews[web.id] = _.build(mvui._WebView, container, web);
+      this.el.append(container);
     },
     removeWebView : function (id) {
       var view = this.webViews[id];
       if (view !== undefined) {
+        view.destroy();
+        view.el.remove();
         delete this.webViews[id];
-        view.remove();
       }
     }
   });
 
-  var _BlobView = {
-    _init : function (webid, uuid) {
-      mv.eventify(this);
-      this.webid = webid;
+  mvui._WebView = _.create(_View, {
+    _init : function (el, web) {
+      _View._init.apply(this, el);
+      this.web = web;
+
+      var iel = $('<div class="inbox"/>').hide().appendTo(this.el);
+      this.inboxView = _.build(mvui._InboxView, iel, this.web);
+      this.blobView = undefined;
+
+      mv.FragmentModel.on("updated", _.im(this, 'updateViewByFragment'));
+      this.updateViewByFragment(undefined, mv.FragmentModel.parsed);
+    },
+    updateViewByFragment : function (model, d) {
+      this.checkIfDestroyed();
+      if (d['web'] !== this.web.name) {
+        return;
+      }
+      if (d['blob'] !== undefined) {
+        this.showBlob(d['blob']);
+      } else {
+        this.showInbox();
+      }
+    },
+    showInbox : function () {
+      if (this.blobView) {
+        this.blobContainer.hide();
+      }
+      this.inboxView.show();
+    },
+    showBlob : function (uuid) {
+      this.inboxView.hide();
+      if (this.blobView === undefined || this.blobView.uuid !== uuid) {
+        this.el.children(".web-blob").remove();
+        if (this.blobView) {
+          this.blobView.destroy();
+        }
+        this.blobContainer = $('<div class="web-blob"/>').appendTo(this.el);
+        this.blobView = _.build(mvui._BlobView, this.blobContainer, this.web, uuid);
+      }
+      this.blobContainer.show();
+    }
+  });
+
+  mvui._BlobView = _.create(_View, {
+    _init : function (el, web, uuid) {
+      _View._init.apply(this, el);
+      this.web = web;
       this.uuid = uuid;
+      this.render();
     },
     render : function () {
       var that = this;
       this.id = _.uniqueId('blob_');
-      var wrapper = $($.trim(mvui.render("blob-wrapper", {id : this.id})));
+      var wrapper = $($.trim(mvui.render("blob-wrapper", {id : this.web.id})));
       _.seq(
-        _.im(mv.BlobModel, 'getBlob', that.webid, that.uuid),
+        _.im(mv.BlobModel, 'getBlob', that.web.id, that.uuid),
         function (blob, callback) {
           var dest = wrapper.find('.blob-wrapped-dest');
           if (blob === undefined) {
@@ -176,7 +230,7 @@ var mvui = (function (mvui) {
             content_type : blob.content_type,
             editor : blob.editor_email,
             titleish : titleish,
-            rawUrl : "/blob/" + blob.uuid
+            rawUrl : "/blob/" + blob.uuid + that.getFilename(that.web, blob)
           };
           dest.html(mvui.render("blob-generic", data));
           if (blob.content_type.slice(0,"mime:text/".length) === "mime:text/") {
@@ -187,19 +241,31 @@ var mvui = (function (mvui) {
           }
         }
       )();
-      mv.BlobModel.getBlob(this.webid, this.uuid, function (blob) {
+      mv.BlobModel.getBlob(this.web.id, this.uuid, function (blob) {
       });
-      return wrapper;
+      this.el.empty().append(wrapper);
+    },
+    getFilename : function (web, blob) {
+      var filename = "";
+      if (blob !== undefined) {
+        var srels = mv.BlobModel.getRelationsForSubject(web.id, blob.uuid);
+        _.each(srels, function (rel) {
+          if (rel.type === "filename" && rel.payload) {
+            filename = "/" + rel.payload;
+          }
+        });
+      }
+      return filename;
     },
     // Gets a title-like thing for the blob
     getTitleish : function (callback) {
       var that = this;
       _.seq(
-        _.im(mv.BlobModel, 'getBlob', this.webid, this.uuid),
+        _.im(mv.BlobModel, 'getBlob', this.web.id, this.uuid),
         function (blob) {
           var titleish = that.uuid;
           if (blob !== undefined) {
-            var srels = mv.BlobModel.getRelationsForSubject(that.webid, that.uuid);
+            var srels = mv.BlobModel.getRelationsForSubject(that.web.id, that.uuid);
             _.each(srels, function (rel) {
               console.log(rel.type);
               if (_.contains(["filename", "title"], rel.type)) {
@@ -211,7 +277,7 @@ var mvui = (function (mvui) {
         }
       )();
     }
-  };
+  });
 
   mvui.makeBlobView = function (webid, uuid) {
     return _.build(_BlobView, webid, uuid);
@@ -227,8 +293,13 @@ var mvui = (function (mvui) {
     return mvui.makeBlobView(webid, uuid).render();
   };
 
-  mvui.makeBlobLink = function (webid, uuid) {
-    var link = $("<a/>").text("loading...");
+  mvui.makeBlobLink = function (web, uuid) {
+    var frag = mv.FragmentModel.makeFragment({
+      web : web.name,
+      blob : uuid
+    });
+    var webid = web.id;
+    var link = $("<a/>").text("loading...").attr('href', frag);
     mv.BlobModel.getBlob(webid, uuid, function (blob) {
       var srels = mv.BlobModel.getRelationsForSubject(webid, uuid);
       var name = uuid;
@@ -236,16 +307,32 @@ var mvui = (function (mvui) {
         if (rel.type == "filename" || rel.type == "title") {
           name = rel.payload || name;
         }
-      });
-      
-      link.text(name).on("click", function (e) {
-        e.preventDefault();
-        $("#blob-view").empty().append(mvui.renderBlob(webid, uuid));
-        return false;
+        link.text(name);
       });
     });
     return link;
   };
+
+  mvui._InboxView = _.create(_View, {
+    _init : function (el, web) {
+      _View._init.apply(this, el);
+      this.web = web;
+      this.render();
+      mv.InboxModel.on("updated", _.im(this, 'render'));
+    },
+    render : function () {
+      var that = this;
+      that.el.empty().append($("<h1/>").text("Inbox"));
+      mv.InboxModel.getInbox(that.web.id, function(uuids) {
+        var ul = $("<ul/>");
+        _.each(uuids, function (uuid) {
+          var link = mvui.makeBlobLink(that.web, uuid);
+          ul.append($('<li/>').append(link));
+        });
+        that.el.append(ul);
+      });
+    }
+  });
 
   return mvui;
 })({});
@@ -268,7 +355,7 @@ jQuery(function ($) {
     return true;
   });
 
-  var WebViews = _.build(mvui._WebViews);
+  var WebViews = _.build(mvui._WebViews, $("#content"));
   var WebSelectorView = _.build(mvui._WebSelectorView, $("#web-selector"));
 
   // mv.WebModel.on(["updated", "deselected"], function (model) {
@@ -430,27 +517,27 @@ jQuery(function ($) {
     $("#fileupload").find(":file").val('');
   });
 
-  function redrawInbox (web) {
-    if (web === undefined) {
-      return;
-    }
-    var el = $("#inbox");
-    el.empty();
-    $("<h2/>").text("Inbox for " + web.name).appendTo(el);
-    var ul = $("<ul/>");
-    _.each(mv.InboxModel.currentInboxes[web.id], function (uuid) {
-      //var p = $(mvui.renderBlob(web.id, uuid)).appendTo(el);
-      ul.append($("<li/>").append(mvui.makeBlobLink(web.id, uuid)));
-    });
-    el.append(ul);
-    updateBlobElements();
-  }
+//   function redrawInbox (web) {
+//     if (web === undefined) {
+//       return;
+//     }
+//     var el = $("#inbox");
+//     el.empty();
+//     $("<h2/>").text("Inbox for " + web.name).appendTo(el);
+//     var ul = $("<ul/>");
+//     _.each(mv.InboxModel.currentInboxes[web.id], function (uuid) {
+//       //var p = $(mvui.renderBlob(web.id, uuid)).appendTo(el);
+//       ul.append($("<li/>").append(mvui.makeBlobLink(web.id, uuid)));
+//     });
+//     el.append(ul);
+//     updateBlobElements();
+//   }
   
-  mv.InboxModel.on("updated", function (model, web_id) {
-    mv.WebModel.getWebs(function (webs) {
-      redrawInbox(mv.WebModel.getCurrentWeb());
-    });
-  });
+//   mv.InboxModel.on("updated", function (model, web_id) {
+//     mv.WebModel.getWebs(function (webs) {
+//       redrawInbox(mv.WebModel.getCurrentWeb());
+//     });
+//   });
 
 //  mv.BlobModel.on("updated", function (model, web_id, blob_id) {
 //    updateBlobElements();
