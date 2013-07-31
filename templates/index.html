@@ -9,6 +9,8 @@
 <script type="text/javascript" src="{{ static_url("underscore-min.js") }}"></script>
 <script type="text/javascript" src="{{ static_url("mv.js") }}"></script>
 <script type="text/javascript" src="{{ static_url("mv-ui.js") }}"></script>
+<script type="text/javascript" src="{{ static_url("codemirror-3.15/lib/codemirror.js") }}"></script>
+<link rel="stylesheet" href="{{ static_url("codemirror-3.15/lib/codemirror.css") }}"></script>
 
 <link type="text/css" rel="stylesheet" href="{{ static_url("jquery.dropdown.css") }}" />
 <script type="text/javascript" src="{{ static_url("jquery.dropdown.js") }}"></script>
@@ -49,6 +51,29 @@
     </div>
   </div>
 </div>
+</script>
+
+<script type="text/template" template-name="web-config">
+  <div class="web-config">
+    <form class="web-config-name">
+      <input type="text" name="web-name" value="<%- data.name %>" autocomplete="off"/>
+      <input type="submit" name="rename" value="Rename"/>
+      <div class="form-error rename-error">There is already a web with that name.</div>
+    </form>
+    <form class="web-config-public">
+      <label>
+        <input type="checkbox" name="web-public" <%= data.isPublic ? "checked" : "" %>/>
+        Is publicly accessible?
+      </label>
+    </form>
+    <p>Users of this web:</p>
+    <ul class="web-config-users">
+    </ul>
+    <form class="web-config-delete">
+      <input type="submit" name="delete" value="Delete web"/>
+      <div class="form-error">This web cannot be deleted because it has blobs.</div>
+    </form>
+  </div>
 </script>
 
 </head>

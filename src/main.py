@@ -105,7 +105,8 @@ class AvatarHandler(MVRequestHandler) :
         if user and user.avatar != None :
             self.redirect(user.avatar)
         else :
-            raise tornado.web.HTTPError(404)
+            self.redirect(self.static_url("images/genericAvatar.gif"))
+            #raise tornado.web.HTTPError(404)
 
 class LoginHandler(MVRequestHandler) :
     def get(self) :

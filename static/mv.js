@@ -298,6 +298,9 @@ var mv = (function (mv, $) {
         return undefined;
       }
     },
+    getParsed : function () {
+      return _.clone(this.parsed);
+    },
     parse : function (hash) {
       var parsed = {};
       _.each(hash.split("&"), function (part) {
@@ -337,7 +340,8 @@ var mv = (function (mv, $) {
 
   var _Web = {
     id : undefined,
-    name : undefined
+    name : undefined,
+    isPublic : undefined
   };
 
   var _WebModel = _.create(_Model, {
@@ -358,14 +362,17 @@ var mv = (function (mv, $) {
         // renamed or created
         web = this.knownWebs[args.web_id] || _.create(_Web, {id : args.web_id});
         web.name = args.web_name;
+        web.isPublic = args.web_public;
         this.knownWebs[web.id] = web;
+        if (this.getCurrentWeb()) {
+          var d = mv.FragmentModel.getParsed();
+          d['web'] = this.getCurrentWeb().name;
+          mv.FragmentModel.changeFragment(d);
+        }
       } else {
         delete this.knownWebs[args.web_id];
-        if (args.web_id == this.currentWebId) {
-          this.currentWebId = undefined;
-          this.trigger("deselected");
-        }
       }
+      this.autoselectWeb();
       this.trigger("updated", this.knownWebs);
     },
     // Gets all of the known webs.  If a callback is supplied, then
@@ -409,12 +416,15 @@ var mv = (function (mv, $) {
               that.currentWebId = web_id;
             }
           }
-          if (that.currentWebId !== undefined) {
+          if (that.currentWebId !== undefined && that.getCurrentWeb()) {
+            console.log("selected web");
             that.trigger("selected");
             if (that.getCurrentWeb().name !== mv.FragmentModel.getPart('web')) {
               mv.FragmentModel.changeFragment({web : that.getCurrentWeb().name});
             }
           } else {
+            console.log("deselected web");
+            that.currentWebId = undefined;
             that.trigger("deselected");
             mv.FragmentModel.changeFragment({});
           }
@@ -431,7 +441,8 @@ var mv = (function (mv, $) {
                that.knownWebs = {};
                _.each(webs, function (name, id) {
                  var web = oldKnownWebs[id] || _.create(_Web, {id : id});
-                 web.name = webs[id];
+                 web.name = webs[id].name;
+                 web.isPublic = webs[id].isPublic;
                  that.knownWebs[id] = web;
                });
                that.autoselectWeb();
@@ -472,6 +483,17 @@ var mv = (function (mv, $) {
     renameWeb : function (webid, newwebname, callback) {
       mv.rpc("webs", "rename_web", {id : +webid, newwebname : newwebname},
              callback);
+    },
+    // Sets 'public' for web
+    setWebPublic : function (webid, isPublic) {
+      mv.rpc("webs", "set_public", {id : +webid, isPublic : isPublic});
+    },
+    // Gets the users who can see this web
+    getWebUsers : function (webid, callback) {
+      mv.rpc("webs", "get_web_users", {id : +webid}, callback);
+    },
+    deleteWeb : function (webid, callback) {
+      mv.rpc("webs", "delete_web", {id : +webid}, callback);
     },
     // Get web by name
     getWebByName : function (name) {
@@ -587,6 +609,27 @@ var mv = (function (mv, $) {
           callback(c);
         });
       }
+    },
+    getParents : function (web) {
+      var orels = mv.BlobModel.getRelationsForSubject(web.id, this.uuid);
+      orels = _.findWhere(orels, {type : "revises"});
+      return _.pluck(orels, 'subject');
+    },
+    getName : function (web) {
+      var name = this.uuid;
+      var srels = mv.BlobModel.getRelationsForSubject(web.id, this.uuid);
+      // sort by date so that later relations take precedence
+      srels = _.sortBy(srels, function (rel) {
+        return rel.blob.date_created.getTime();
+      });
+      _.each(srels, function (rel) {
+        if (rel.type === "filename" || rel.type === "title") {
+          name = rel.payload || name;
+        }
+      });
+      return name;
+    },
+    getSummary : function () {
     }
   };
   // Prototype for a single relation
@@ -894,7 +937,6 @@ var mv = (function (mv, $) {
             inbox.push(args.uuid);
             this.trigger("added", args.web_id, args.uuid);
           }
-          mv.BlobModel.pullBlobs(args.web_id, [args.uuid]);
         } else {
           this.currentInboxes[args.web_id] = _.without(inbox, args.uuid);
           this.trigger("removed", args.web_id, args.uuid);

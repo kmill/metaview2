@@ -80,26 +80,12 @@ var mvui = (function (mvui) {
         var sel = $("#web_selector");
         sel.empty();
         _.each(webs, function (web) {
-          var opt = $('<a/>').attr("href", "#" + web.name).text(web.name);
-          var edit = $('<a/>').attr('href', '#').addClass("webEditButton").text("edit");
+          var viewFrag = mv.FragmentModel.makeFragment({web : web.name});
+          var editFrag = mv.FragmentModel.makeFragment({web : web.name, config : 'web'});
+          var opt = $('<a/>').attr("href", viewFrag).text(web.name);
+          var edit = $('<a/>').attr('href', editFrag).addClass("webEditButton").text("edit");
           var li = $('<li/>').append(edit).append(opt);
           sel.append(li);
-//          opt.on("click", function () {
-//            mv.WebModel.setCurrentWeb(web.id);
-//          });
-          edit.on("click", function (e) {
-            e.preventDefault();
-            var newwebname = prompt("New name for the web", web.name);
-            if (newwebname) {
-              mv.WebModel.renameWeb(web.id, newwebname,
-                                    function (res) {
-                                      if (!res) {
-                                        alert("There is already a web with that name.");
-                                      }
-                                    });
-            }
-            return false;
-          });
         });
       });
     }
@@ -108,10 +94,10 @@ var mvui = (function (mvui) {
   mvui._WebViews = _.create(_View, {
     _init : function (el) {
       _View._init.apply(this, el);
+      this.webViews = {};
       mv.WebModel.on("selected", _.im(this, 'selectWeb'));
       mv.WebModel.on("deselected", _.im(this, 'deselectWeb'));
       mv.WebModel.on("updated", _.im(this, 'updateWebs'));
-      this.webViews = {};
     },
     selectWeb : function () {
       this.checkIfDestroyed();
@@ -128,7 +114,7 @@ var mvui = (function (mvui) {
       this.checkIfDestroyed();
       var that = this;
       mv.WebModel.getWebs(function (webs) {
-        _.each(_.keys(this.webViews), function (id) {
+        _.each(_.keys(that.webViews), function (id) {
           if (!_.has(webs, id)) {
             that.removeWebView(id);
           }
@@ -164,9 +150,10 @@ var mvui = (function (mvui) {
       var iel = $('<div class="inbox"/>').hide().appendTo(this.el);
       this.inboxView = _.build(mvui._InboxView, iel, this.web);
       this.blobView = undefined;
+      this.configView = $('<div class="web-config"/>').appendTo(this.el);
 
       mv.FragmentModel.on("updated", _.im(this, 'updateViewByFragment'));
-      this.updateViewByFragment(undefined, mv.FragmentModel.parsed);
+      this.updateViewByFragment(undefined, mv.FragmentModel.getParsed());
     },
     updateViewByFragment : function (model, d) {
       this.checkIfDestroyed();
@@ -175,18 +162,93 @@ var mvui = (function (mvui) {
       }
       if (d['blob'] !== undefined) {
         this.showBlob(d['blob']);
+      } else if (d['config'] === 'web') {
+        this.showConfig();
       } else {
         this.showInbox();
       }
+    },
+    showConfig : function () {
+      var that = this;
+      if (this.blobView) { this.blobContainer.hide(); }
+      this.inboxView.hide();
+      this.configView.show();
+      this.configView.empty().html(mvui.render("web-config", {
+        name : this.web.name,
+        isPublic : this.web.isPublic
+      }));
+      var nameform = this.configView.find("form.web-config-name");
+      var namesubmit = nameform.find('input[type="submit"]');
+      var nametext = nameform.find('input[name="web-name"]');
+      var nameerror = nameform.find('.rename-error');
+      var nameWithError = undefined;
+      namesubmit.hide();
+      nametext.on("keyup", function () {
+        console.log("change");
+        if ($(this).val() === that.web.name) {
+          namesubmit.fadeOut();
+        } else {
+          namesubmit.fadeIn();
+        }
+        if ($(this).val() !== nameWithError) {
+          nameerror.fadeOut();
+        }
+      });
+      nameform.on("submit", function (e) {
+        e.preventDefault();
+        var newwebname = nametext.val();
+        if (newwebname && newwebname !== that.web.name) {
+          mv.WebModel.renameWeb(that.web.id, newwebname,
+                                function (res) {
+                                  if (!res) {
+                                    nameWithError = newwebname;
+                                    nameerror.fadeIn();
+                                  } else {
+                                    nameWithError = undefined;
+                                  }
+                                });
+        } else {
+          nametext.val(that.web.name);
+        }
+        return false;
+      });
+      var publicform = this.configView.find("form.web-config-public");
+      publicform.find('input').on("change", function (e) {
+        var checked = $(this).prop('checked');
+        mv.WebModel.setWebPublic(that.web.id, checked);
+      });
+      mv.WebModel.getWebUsers(that.web.id, function (users) {
+        var ul = that.configView.find(".web-config-users");
+        _.each(users, function(user) {
+          ul.append($("<li/>").attr("user-tooltip", user).text(user));
+        });
+      });
+      var deleteform = this.configView.find("form.web-config-delete");
+      deleteform.on("submit", function (e) {
+        e.preventDefault();
+        deleteform.find("input").prop('disabled', true);
+        deleteform.find(".form-error").fadeOut();
+        mv.WebModel.deleteWeb(that.web.id, function (r) {
+          if (!r) {
+            deleteform.find(".form-error").fadeIn();
+          }
+          deleteform.find("input").prop('disabled', false);
+        });
+        return false;
+      });
+      return;
+
     },
     showInbox : function () {
       if (this.blobView) {
         this.blobContainer.hide();
       }
+      this.configView.hide();
       this.inboxView.show();
     },
     showBlob : function (uuid) {
       this.inboxView.hide();
+      this.configView.hide();
       if (this.blobView === undefined || this.blobView.uuid !== uuid) {
         this.el.children(".web-blob").remove();
         if (this.blobView) {
@@ -317,20 +379,106 @@ var mvui = (function (mvui) {
     _init : function (el, web) {
       _View._init.apply(this, el);
       this.web = web;
+      this.rows = {};
       this.render();
+      this.table = undefined;
       mv.InboxModel.on("updated", _.im(this, 'render'));
     },
     render : function () {
       var that = this;
-      that.el.empty().append($("<h1/>").text("Inbox"));
-      mv.InboxModel.getInbox(that.web.id, function(uuids) {
-        var ul = $("<ul/>");
-        _.each(uuids, function (uuid) {
-          var link = mvui.makeBlobLink(that.web, uuid);
-          ul.append($('<li/>').append(link));
-        });
-        that.el.append(ul);
+      if (that.table === undefined) {
+        that.el.empty().append($("<h1/>").text("Inbox"));
+        that.el.append($('<p class="removeWhenLoaded"><em>Loading</em></p>'));
+        that.table = $('<table class="inbox-table"/>').appendTo(that.el);
+        that.table.append($('<colgroup/>')
+                          .append($('<col class="inbox-editor"/>'))
+                          .append($('<col class="inbox-summary"/>'))
+                          .append($('<col class="inbox-time"/>')));
+      }
+      var table = that.table;
+      _.seq(
+        _.im(mv.InboxModel, 'getInbox', that.web.id),
+        function (uuids, callback) {
+          mv.BlobModel.getBlobs(that.web.id, uuids, callback);
+        },
+        function (blobs) {
+          var oldRows = that.rows;
+          that.rows = {};
+          _.each(blobs, function (blob) {
+            if (_.has(oldRows, blob.uuid)) {
+              that.rows[blob.uuid] = oldRows[blob.uuid];
+              delete oldRows[blob.uuid];
+            } else {
+              that.rows[blob.uuid] = {
+                blob : blob,
+                row : that.renderBlobRow(blob)
+              };
+            }
+          });
+          that.el.find(".removeWhenLoaded").remove();
+          var sorted = _.sortBy(_.keys(that.rows), function (uuid) {
+            return -that.rows[uuid].blob.date_created.getTime();
+          });
+          _.each(oldRows, function (row) {
+            row.row.remove();
+          });
+          _.each(sorted, function (uuid) {
+            table.append(that.rows[uuid].row);
+          });
+        }
+      )();
+      // mv.InboxModel.getInbox(that.web.id, function(uuids) {
+      //   var ul = $("<ul/>");
+      //   _.each(uuids, function (uuid) {
+      //     var link = mvui.makeBlobLink(that.web, uuid);
+      //     ul.append($('<li/>').append(link));
+      //   });
+      //   that.el.append(ul);
+      // });
+    },
+    renderBlobRow : function (blob) {
+      var frag = mv.FragmentModel.makeFragment({
+        web : this.web.name,
+        blob : blob.uuid
       });
+      var blobAuthors = this.getBlobAuthors(blob);
+      var row = $("<tr/>");
+      row.append($('<td class="inbox-editor"/>'));
+      row.append($('<td class="inbox-summary"/>').append(blob.getName(this.web)));
+      row.append($('<td class="inbox-time"/>').append(mv.shortTime(blob.date_created)));
+      row.on("click", function (e) {
+        window.location = frag;
+      });
+      mv.UserModel.getUsers(function (users) {
+        var ed = row.children('.inbox-editor');
+        var sep = "";
+        _.each(blobAuthors, function (email) {
+          ed.append(sep);
+          $('<span/>').text(users[email].first_name)
+            .attr("user-tooltip", email)
+            .appendTo(ed);
+          sep = ", ";
+        });
+      });
+      return row;
+    },
+    getBlobAuthors : function (blob) {
+      var seen = {}; // being used as a set
+      var toSee = [blob];
+      var authors = [];
+      while (toSee.length > 0) {
+        var see_now = toSee.pop();
+        if (!_.has(seen, see_now.uuid)) {
+          seen[see_now.uuid] = true;
+          if (!_.contains(authors, see_now.editor_email)) {
+            authors.push(see_now.editor_email);
+          }
+          var parents = see_now.getParents(this.web);
+          toSee.push.apply(toSee, parents);
+        }
+      }
+      authors.reverse();
+      return authors;
     }
   });
 

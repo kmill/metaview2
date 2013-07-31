@@ -107,13 +107,16 @@ class NewBlobMessage(Message) :
                 "args" : {"uuid" : self.blob.uuid}}
 
 class WebChangeMessage(Message) :
-    def __init__(self, web_id, web_name=None) :
+    def __init__(self, web_id, web_name=None, web_public=None, was_public=False) :
         """web_name being None represents web deletion."""
         self.web_id = web_id
         self.web_name = web_name
+        self.web_public = web_public
+        self.was_public = was_public
     def appropriate_for(self, user) :
         return self.web_name == None or self.web_id in [w.id for w in models.UserWebAccess.get_for_user(user)]
     def serialize(self) :
         return {"type" : "WebChangeMessage",
                 "args" : {"web_id" : self.web_id,
-                          "web_name" : self.web_name}}
+                          "web_name" : self.web_name,
+                          "web_public" : self.web_public}}

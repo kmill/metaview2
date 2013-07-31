@@ -17,44 +17,51 @@ def db_connect(dbfile) :
     DB.row_factory = sqlite3.Row
 
 class Web(object) :
-    def __init__(self, id=None, name=None) :
+    def __init__(self, id=None, name=None, public=None) :
         self.id = id
         self.name = name
+        self.public = public
     def __repr__(self) :
-        return "Web(id=%r, name=%r)" % (self.id, self.name)
+        return "Web(id=%r, name=%r, public=%r)" % (self.id, self.name, bool(self.public))
     @staticmethod
     def update(web) :
         with DB :
             if web.id == None :
-                c = DB.execute("insert into webs (web_name) values (?)", (web.name,))
+                c = DB.execute("insert into webs (web_name, public) values (?,?)", (web.name, web.public))
                 web.id = c.lastrowid
             else :
-                DB.execute("update webs set web_name=? where id=?", (web.name, web.id,))
+                print "**", (web.name, web.public, web.id)
+                DB.execute("update webs set web_name=?, public=? where id=?", (web.name, web.public, web.id))
     @staticmethod
     def get_all() :
-        return [Web(id=row['id'], name=row['web_name'])
-                for row in DB.execute("select id, web_name from webs")]
+        return [Web(id=row['id'], name=row['web_name'], public=row['public'])
+                for row in DB.execute("select id, web_name, public from webs")]
     @staticmethod
     def get_by_id(id) :
-        for row in DB.execute("select id, web_name from webs where id=?", (id,)) :
-            return Web(id=row['id'], name=row['web_name'])
+        for row in DB.execute("select id, web_name, public from webs where id=?", (id,)) :
+            return Web(id=row['id'], name=row['web_name'], public=row['public'])
         return None
+    def remove(self) :
+        """Will fail because of foreign keys."""
+        with DB :
+            DB.execute("delete from webs where web_name=?", (self.name,))
+        self.id = None
 
 
 class UserWebAccess(object) :
     @staticmethod
     def get_for_user(user) :
-        return [Web(id=row['id'], name=row['web_name'])
-                for row in DB.execute('select id, web_name from webs inner join user_web_access on user_web_access.web_id=webs.id where user_web_access.user_id=?', (user.id,))]
+        return [Web(id=row['id'], name=row['web_name'], public=bool(row['public']))
+                for row in DB.execute('select id, web_name, public from webs left join user_web_access on user_web_access.web_id=webs.id where user_web_access.user_id=? or public', (user.id,))]
     @staticmethod
     def can_user_access(user, web) :
         user_id = user.id if isinstance(user, User) else user
         web_id = web.id if isinstance(web, Web) else web
-        return None != DB.execute("select web_id from user_web_access where user_id=? and web_id=?", (user_id, web_id)).fetchone()
+        return None != DB.execute("select 1 from webs join user_web_access on user_web_access.web_id=webs.id  where (user_web_access.user_id=? or webs.public) and web_id=?", (user_id, web_id)).fetchone()
     @staticmethod
     def users_for_web(web) :
+        """Gets all users who have been explicitly granted privileges (not just by 'public')."""
         web_id = web.id if isinstance(web, Web) else web
-        print "***",web_id
         return [User.get_by_id(row['user_id'])
                 for row in DB.execute('select user_id from user_web_access where web_id=?', (web_id,))]
     @staticmethod
@@ -215,6 +222,9 @@ class WebBlobAccess(object) :
         with DB :
             DB.execute("insert into blobs_web (web_id, blob_id) values (?,?)",
                          (web.id, blob.id))
+    @staticmethod
+    def does_web_have_blobs(web) :
+        return None != DB.execute("select 1 from blobs_web where web_id=? limit 1", (web.id,)).fetchone()
     @staticmethod
     def get_webs_for_blob(blob) :
         blob_id = blob.id if isinstance(blob, Blob) else blob

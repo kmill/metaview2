@@ -16,25 +16,58 @@ class WebsRPC(RPCServable) :
         self.channels = channels
     @rpcmethod
     def create_web(self, user, webname) :
-        if webname in [w.name for w in models.Web.get_all()] :
+        webname = str(webname).strip()
+        if not webname or webname in [w.name for w in models.Web.get_all()] :
             return None
-        web = models.Web(name=webname)
+        web = models.Web(name=webname, public=False)
         models.Web.update(web)
         models.UserWebAccess.add_for_user(web, user)
-        self.channels.broadcast([channel.WebChangeMessage(web.id, web.name)])
+        self.channels.broadcast([channel.WebChangeMessage(web.id, web.name, web.public)])
         return web.id
     @rpcmethod
     def rename_web(self, user, id, newwebname) :
+        newwebname = str(newwebname).strip()
         if not newwebname or newwebname in [w.name for w in models.Web.get_all()] :
             return None
         web = models.Web.get_by_id(id)
+        if not web or user.id not in [u.id for u in models.UserWebAccess.users_for_web(id)] :
+            raise Exception("no such web") # makes sure has explicit access
         web.name = newwebname
         models.Web.update(web)
-        self.channels.broadcast([channel.WebChangeMessage(web.id, web.name)])
+        self.channels.broadcast([channel.WebChangeMessage(web.id, web.name, web.public)])
         return web.id
     @rpcmethod
+    def set_public(self, user, id, isPublic) :
+        web = models.Web.get_by_id(id)
+        if not web or user.id not in [u.id for u in models.UserWebAccess.users_for_web(id)] :
+            raise Exception("no such web") # makes sure has explicit access
+        wasPublic = web.public
+        web.public = bool(isPublic)
+        models.Web.update(web)
+        self.channels.broadcast([channel.WebChangeMessage(web.id, web.name, web.public, was_public=wasPublic)])
+        return
+    @rpcmethod
     def get_webs(self, user) :
-        return dict((w.id, w.name) for w in models.UserWebAccess.get_for_user(user))
+        return {w.id : {'name' : w.name, 'isPublic' : w.public}
+                for w in models.UserWebAccess.get_for_user(user)}
+    @rpcmethod
+    def get_web_users(self, user, id) :
+        if not models.UserWebAccess.can_user_access(user, id) :
+            raise Exception("no such web") # public is ok
+        return [u.email for u in models.UserWebAccess.users_for_web(id)]
+    @rpcmethod
+    def delete_web(self, user, id) :
+        web = models.Web.get_by_id(id)
+        if not web or id not in [w.id for w in models.UserWebAccess.get_for_user(user)] :
+            raise Exception("no such web") # makes sure has explicit access
+        if models.WebBlobAccess.does_web_have_blobs(web) :
+            return False
+        for user in models.UserWebAccess.users_for_web(web) :
+            models.UserWebAccess.remove_for_user(web, user)
+        old_id = web.id
+        web.remove()
+        self.channels.broadcast([channel.WebChangeMessage(old_id, None, web.public)])
+        return True
     @rpcmethod
     def set_default_web(self, user, web_id) :
         self.handler.set_cookie("default_web_id", str(web_id))

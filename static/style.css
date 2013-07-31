@@ -8,6 +8,11 @@ div.clear {
 body { margin: 0; padding: 0; }
 #body { margin: 0; padding: 0; }
 
+body, td, input, textarea, select {
+    font-family: "helvetica neue", "helvetica", "arial", sans-serif;
+    font-size: 10pt;
+}
+
 a {
     text-decoration: none;
     color: #00D;
@@ -53,7 +58,7 @@ div.clear {
 
 #content {
     padding: 1em 1em 1em 1em;
-    width: 786px;
+/*    width: 786px;*/
 }
 
 #footer {
@@ -177,6 +182,57 @@ a.webEditButton {
 
 span.uploadNumInProgress {
     font-weight: bold;
+}
+
+/* web config */
+form.web-config-name {
+    padding-bottom: 1em;
+}
+form.web-config-name input[type="text"] {
+    font-size: 150%;
+}
+.form-error {
+    color: #e22;
+    display: none;
+}
+
+/* inbox */
+
+table.inbox-table {
+    width: 100%;
+    table-layout: fixed;
+    border-spacing: 0;
+    padding: 0;
+}
+
+.inbox-table tr {
+    background: #eee;
+    cursor: pointer;
+}
+.inbox-table td {
+    empty-cells: show;
+    overflow: hidden;
+    vertical-align: middle;
+    border-style: solid;
+    border-width: 0 0 1px 0;
+    border-color: #fefefe;
+    padding: 4px;
+}
+
+col.inbox-editor {
+    width: 150px;
+}
+col.inbox-time {
+    width: 10em;
+}
+td.inbox-editor {
+    padding-left: 1em;
+}
+td.inbox-summary {
+}
+td.inbox-time {
+    text-align: right;
+    padding-right: 1em;
 }
 
 /* scratch */

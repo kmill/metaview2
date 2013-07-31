@@ -6,6 +6,7 @@
 create table webs (
   id integer primary key,
   web_name text not null,
+  public integer not null,
   unique(web_name)
 );
 
@@ -57,7 +58,7 @@ create table blobs_web (
 
 create table relation_types (
   id integer primary key,
-  relation_type_name text,
+  relation_type_name text not null,
   unique(relation_type_name)
 );
 
@@ -81,8 +82,8 @@ create table relations (
 
 create table plugin_inbox (
   user_id integer not null,
-  web_id integer,
-  blob_id integer,
+  web_id integer not null,
+  blob_id integer not null,
   foreign key(user_id) references users(id),
   foreign key(web_id) references webs(id),
   foreign key(blob_id) references blobs(id),
