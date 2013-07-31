@@ -41,7 +41,7 @@ var mvui = (function (mvui) {
 
   mvui._WebSelectorView = _.create(_View, {
     _init : function (el) {
-      _View._init.apply(this, el);
+      _View._init.call(this, el);
       this.renderSkeleton();
       mv.WebModel.on(["updated", "selected", "deselected"], _.im(this, 'redraw'));
       _.defer(_.im(this, 'redraw'));
@@ -93,7 +93,7 @@ var mvui = (function (mvui) {
 
   mvui._WebViews = _.create(_View, {
     _init : function (el) {
-      _View._init.apply(this, el);
+      _View._init.call(this, el);
       this.webViews = {};
       mv.WebModel.on("selected", _.im(this, 'selectWeb'));
       mv.WebModel.on("deselected", _.im(this, 'deselectWeb'));
@@ -144,7 +144,7 @@ var mvui = (function (mvui) {
 
   mvui._WebView = _.create(_View, {
     _init : function (el, web) {
-      _View._init.apply(this, el);
+      _View._init.call(this, el);
       this.web = web;
 
       var iel = $('<div class="inbox"/>').hide().appendTo(this.el);
@@ -263,7 +263,7 @@ var mvui = (function (mvui) {
 
   mvui._BlobView = _.create(_View, {
     _init : function (el, web, uuid) {
-      _View._init.apply(this, el);
+      _View._init.call(this, el);
       this.web = web;
       this.uuid = uuid;
       this.render();
@@ -271,7 +271,7 @@ var mvui = (function (mvui) {
     render : function () {
       var that = this;
       this.id = _.uniqueId('blob_');
-      var wrapper = $($.trim(mvui.render("blob-wrapper", {id : this.web.id})));
+      var wrapper = $($.trim(mvui.render("blob-wrapper", {id : this.id})));
       _.seq(
         _.im(mv.BlobModel, 'getBlob', that.web.id, that.uuid),
         function (blob, callback) {
@@ -287,7 +287,7 @@ var mvui = (function (mvui) {
         function (blob, dest, titleish, callback) {
           dest.empty();
           var data = {
-            created : mv.shortTime(blob.date_created),
+            created : mv.shortTime(blob.date_created, true),
             uuid : blob.uuid,
             content_type : blob.content_type,
             editor : blob.editor_email,
@@ -301,6 +301,14 @@ var mvui = (function (mvui) {
               dest.find('.blob-content').html($("<pre/>").text(c));
             });
           }
+          blob.getRelations(that.web.id, function (rels) {
+            _.each(rels, function (r) {
+              var t = r[0] ? "inherited " : " ";
+              t += r[1] ? "deleted " : " ";
+              t += r[2].type + " payload=" + r[2].payload;
+              dest.append($("<p/>").text(t));
+            });
+          });
         }
       )();
       mv.BlobModel.getBlob(this.web.id, this.uuid, function (blob) {
@@ -341,43 +349,23 @@ var mvui = (function (mvui) {
     }
   });
 
-  mvui.makeBlobView = function (webid, uuid) {
-    return _.build(_BlobView, webid, uuid);
-  };
+//   mvui.makeBlobView = function (webid, uuid) {
+//     return _.build(_BlobView, webid, uuid);
+//   };
 
-  mvui.renderBlobWrapper = function (webid, uuid, content) {
-    return mvui.render("blob-wrapper",
-                       {webid : webid,
-                        uuid : uuid,
-                        content : content});
-  };
-  mvui.renderBlob = function (webid, uuid) {
-    return mvui.makeBlobView(webid, uuid).render();
-  };
-
-  mvui.makeBlobLink = function (web, uuid) {
-    var frag = mv.FragmentModel.makeFragment({
-      web : web.name,
-      blob : uuid
-    });
-    var webid = web.id;
-    var link = $("<a/>").text("loading...").attr('href', frag);
-    mv.BlobModel.getBlob(webid, uuid, function (blob) {
-      var srels = mv.BlobModel.getRelationsForSubject(webid, uuid);
-      var name = uuid;
-      _.each(srels, function (rel) {
-        if (rel.type == "filename" || rel.type == "title") {
-          name = rel.payload || name;
-        }
-        link.text(name);
-      });
-    });
-    return link;
-  };
+//   mvui.renderBlobWrapper = function (webid, uuid, content) {
+//     return mvui.render("blob-wrapper",
+//                        {webid : webid,
+//                         uuid : uuid,
+//                         content : content});
+//   };
+//   mvui.renderBlob = function (webid, uuid) {
+//     return mvui.makeBlobView(webid, uuid).render();
+//   };
 
   mvui._InboxView = _.create(_View, {
     _init : function (el, web) {
-      _View._init.apply(this, el);
+      _View._init.call(this, el);
       this.web = web;
       this.rows = {};
       this.render();
@@ -427,24 +415,21 @@ var mvui = (function (mvui) {
           });
         }
       )();
-      // mv.InboxModel.getInbox(that.web.id, function(uuids) {
-      //   var ul = $("<ul/>");
-      //   _.each(uuids, function (uuid) {
-      //     var link = mvui.makeBlobLink(that.web, uuid);
-      //     ul.append($('<li/>').append(link));
-      //   });
-      //   that.el.append(ul);
-      // });
     },
     renderBlobRow : function (blob) {
       var frag = mv.FragmentModel.makeFragment({
         web : this.web.name,
         blob : blob.uuid
       });
-      var blobAuthors = this.getBlobAuthors(blob);
+      var blobAuthors = blob.getAuthors(this.web);
       var row = $("<tr/>");
       row.append($('<td class="inbox-editor"/>'));
-      row.append($('<td class="inbox-summary"/>').append(blob.getName(this.web)));
+      row.append($('<td class="inbox-summary"/>')
+                 .append($('<span class="inbox-summary-name"/>')
+                         .text(blob.getName(this.web)))
+                 .append(" &mdash; ")
+                 .append(blob.content_type)
+                );
       row.append($('<td class="inbox-time"/>').append(mv.shortTime(blob.date_created)));
       row.on("click", function (e) {
         window.location = frag;
@@ -461,24 +446,6 @@ var mvui = (function (mvui) {
         });
       });
       return row;
-    },
-    getBlobAuthors : function (blob) {
-      var seen = {}; // being used as a set
-      var toSee = [blob];
-      var authors = [];
-      while (toSee.length > 0) {
-        var see_now = toSee.pop();
-        if (!_.has(seen, see_now.uuid)) {
-          seen[see_now.uuid] = true;
-          if (!_.contains(authors, see_now.editor_email)) {
-            authors.push(see_now.editor_email);
-          }
-          var parents = see_now.getParents(this.web);
-          toSee.push.apply(toSee, parents);
-        }
-      }
-      authors.reverse();
-      return authors;
     }
   });
 
@@ -505,40 +472,6 @@ jQuery(function ($) {
 
   var WebViews = _.build(mvui._WebViews, $("#content"));
   var WebSelectorView = _.build(mvui._WebSelectorView, $("#web-selector"));
-
-  // mv.WebModel.on(["updated", "deselected"], function (model) {
-  //   _.seq(
-  //     _.im(model, 'getWebs'),
-  //     function (knownWebs) {
-  //       var el = $("#web_selector");
-  //       el.empty();
-  //       var currentWeb = mv.WebModel.getCurrentWeb();
-  //       _.each(knownWebs, function (web) {
-  //         var opt = $("<a/>").attr("href", "#" + web.name).text(web.name);
-  //         var edit = $("<a/>").attr("href", "#").addClass("webEditButton").text("edit");
-  //         var li = $("<li/>").append(edit).append(opt);
-  //         el.append(li);
-  //         opt.on("click", function() {
-  //           mv.WebModel.setCurrentWeb(web.id);
-  //         });
-  //         edit.on("click", function() {
-  //           var newwebname = prompt("New name for the web", web.name);
-  //           if (newwebname) {
-  //             mv.WebModel.renameWeb(web.id, newwebname,
-  //                                   function (res) {
-  //                                     if (!res) {
-  //                                       alert("There is already a web with that name.");
-  //                                     }
-  //                                   });
-  //           }
-  //           return false;
-  //         });
-  //       });
-  //     })();
-  // });
-
-  // mv.WebModel.pullWebs();
-
 
   mv.UserModel.getUsers(function (users) {
     $("div[data-avatar]").each(function () {
@@ -665,73 +598,5 @@ jQuery(function ($) {
     $("#fileupload").find(":file").val('');
   });
 
-//   function redrawInbox (web) {
-//     if (web === undefined) {
-//       return;
-//     }
-//     var el = $("#inbox");
-//     el.empty();
-//     $("<h2/>").text("Inbox for " + web.name).appendTo(el);
-//     var ul = $("<ul/>");
-//     _.each(mv.InboxModel.currentInboxes[web.id], function (uuid) {
-//       //var p = $(mvui.renderBlob(web.id, uuid)).appendTo(el);
-//       ul.append($("<li/>").append(mvui.makeBlobLink(web.id, uuid)));
-//     });
-//     el.append(ul);
-//     updateBlobElements();
-//   }
-  
-//   mv.InboxModel.on("updated", function (model, web_id) {
-//     mv.WebModel.getWebs(function (webs) {
-//       redrawInbox(mv.WebModel.getCurrentWeb());
-//     });
-//   });
-
-//  mv.BlobModel.on("updated", function (model, web_id, blob_id) {
-//    updateBlobElements();
-//  });
-  //mv.UserModel.addEventHandler("updated", function (model) {
-  //updateBlobElements();
-  //});
-
-  function updateBlobElements () {
-    $("[data-blob-uuid]").each(function () {
-      drawBlob(this);
-    });
-  }
-
-  function drawBlob (e) {
-    e = $(e);
-    var web_id = e.attr("data-blob-webid");
-    var uuid = e.attr("data-blob-uuid");
-    mv.BlobModel.getBlob(web_id, uuid, function (blob) {
-      if (blob !== undefined) {
-        var srels = mv.BlobModel.getRelationsForSubject(web_id, uuid);
-        var filename = uuid;
-        _.each(srels, function (rel) {
-          if (rel.type == "filename") {
-            filename = rel.payload || filename;
-          }
-        });
-        var url = "/blob/" + uuid;
-        if (filename != uuid) {
-          url += "/" + filename;
-        }
-        _.seq(
-          _.im(mv.UserModel, 'getUser', blob.editor_email),
-          function (editor) {
-            e.empty();
-            var editor_name = (editor !== undefined && editor.first_name) || blob.editor_email;
-            e.append($("<span/>").text(editor_name));
-            e.append(" | ");
-            e.append($("<a/>").attr("href", url).attr("target", "_blank").text(filename));
-            e.append(" ");
-            e.append($("<span/>").text(mv.shortTime(blob.date_created)));
-          }
-        )();
-      }
-    });
-  }
-  
 
 });

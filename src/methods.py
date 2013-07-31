@@ -5,6 +5,7 @@ import minirpc
 from minirpc import rpcmethod, RPCServable
 from rpcmodules import rpc_module
 import relations
+from tornado import httputil
 
 import models
 import channel
@@ -95,7 +96,7 @@ class BlobsRPC(RPCServable) :
         self.channels = channels
     def blob_as_dict(self, blob, with_content=False) :
         ret = {"uuid" : blob.uuid,
-               "date_created" : blob.date_created.isoformat(),
+               "date_created" : httputil.format_timestamp(blob.date_created),
                "editor_email" : blob.editor_email,
                "content_type" : blob.content_type}
         if with_content :

@@ -610,10 +610,95 @@ var mv = (function (mv, $) {
         });
       }
     },
-    getParents : function (web) {
-      var orels = mv.BlobModel.getRelationsForSubject(web.id, this.uuid);
-      orels = _.findWhere(orels, {type : "revises"});
-      return _.pluck(orels, 'subject');
+    // returns a graph of [UUID -> Blob, UUID -> [parent UUID]]
+    getParentGraph : function (webid, callback) {
+      var finish = _.once(callback);
+      var seen = {};
+      var links = {};
+      var seeing = {}; // used as a set
+      function step(blob) {
+        if (!_.has(seen, blob.uuid)) {
+          seen[blob.uuid] = seen;
+          var srels = mv.BlobModel.getRelationsForSubject(webid, blob.uuid);
+          srels = _.where(srels, {type : "revises"});
+          var parents = _.pluck(srels, 'payload');
+          links[blob.uuid] = parents;
+          _.each(parents, function (par) {
+            if (!_.has(seeing, par) && !_.has(seen, par)) {
+              seeing[par] = true;
+              mv.BlobModel.getBlob(webid, par, step);
+            }
+          });
+          delete seeing[blob.uuid];
+          if (_.size(seeing) === 0) {
+            finish({ blobs : seen, edges : links});
+          }
+        }
+      }
+      step(this);
+    },
+    getRelations : function (webid, callback) {
+      var that = this;
+      this.getParentGraph(webid, function (g) {
+        // The links might go counter-temporally; we break those links
+        function realParents(uuid) {
+          return _.filter(g.edges[uuid], function (puuid) {
+            return g.blobs[puuid] && g.blobs[uuid].date_created.getTime() > g.blobs[puuid].date_created.getTime();
+          });
+        }
+
+        function isDeleted(uuid) {
+          var dels = _.where(mv.BlobModel.getRelationsForSubject(webid, uuid),
+                             {type : "deleted"});
+          return dels.length > 0 && _.every(dels, function (rel) { return isDeleted(rel.blob.uuid); });
+        }
+        
+        var rels = {}; // UUID -> [(Inherited?, Deleted?, Rel)]
+        function getrels(uuid) {
+          if (_.has(rels, uuid)) {
+            return rels[uuid];
+          }
+          var inherited = {};
+          _.each(realParents(uuid), function (puuid) {
+            _.each(getrels(puuid), function (relEntry) {
+              var type = relEntry[2].type;
+              if (type === "revises") {
+                // don't inherit
+              } else if (type === "deleted") {
+                // don't inherit
+              } else if (type === "mask-relation") {
+                // don't inherit
+              } else if (relEntry[1]) {
+                // deleted. don't inherit
+              } else {
+                inherited[relEntry[2].blob.uuid] = relEntry[2];
+              }
+            });
+          });
+          
+          var srels = _.map(mv.BlobModel.getRelationsForSubject(webid, uuid),
+                            function (rel) { return [isDeleted(rel.blob.uuid), rel]; });
+
+          var masked = [];
+          _.each(srels, function (rel) {
+            if (!rel[0] && rel[1].type === "mask-relation") {
+              masked.push(rel.payload);
+            }
+          });
+          var myrels = [];
+          _.each(inherited, function (rel) {
+            if (!_.contains(masked, rel.blob.uuid)) {
+              myrels.push([true, false, rel]);
+            }
+          });
+          _.each(srels, function (rel) {
+            myrels.push([false, rel[0], rel[1]]);
+          });
+          rels[uuid] = myrels;
+          return myrels;
+        }
+        callback(getrels(that.uuid));
+      });
     },
     getName : function (web) {
       var name = this.uuid;
@@ -630,6 +715,24 @@ var mv = (function (mv, $) {
       return name;
     },
     getSummary : function () {
+    },
+    getAuthors : function (web) {
+      var seen = {}; // being used as a set
+      var toSee = [this];
+      var authors = [];
+      while (toSee.length > 0) {
+        var see_now = toSee.pop();
+        if (!_.has(seen, see_now.uuid)) {
+          seen[see_now.uuid] = true;
+          if (!_.contains(authors, see_now.editor_email)) {
+            authors.push(see_now.editor_email);
+          }
+          //var parents = see_now.getParents(web);
+          //toSee.push.apply(toSee, parents);
+        }
+      }
+      authors.reverse();
+      return authors;
     }
   };
   // Prototype for a single relation
@@ -782,7 +885,7 @@ var mv = (function (mv, $) {
       } else {
         return [];
       }
-    },
+    }
   });
 
   // The actual blob model
@@ -974,23 +1077,29 @@ var mv = (function (mv, $) {
     6 : "Jul", 7 : "Aug", 8 : "Sep", 9 : "Oct", 10 : "Nov", 11 : "Dec"};
 
   // Converts a date object into a short time string
-  mv.shortTime = function (date) {
+  mv.shortTime = function (date, showTime) {
     function pad2(n) {
       var o = "0" + n;
       return o.substring(o.length-2);
     }
     var now = new Date();
+    var h = date.getHours();
+    var hs = h%12 == 0 ? 12 : h%12;
+    var ampm = h < 12 ? "am" : "pm";
+    var time = hs + ":" + pad2(date.getMinutes()) + " " + ampm;
+    var cptime = showTime ? " " + time : "";
     if (date.getFullYear()  == now.getFullYear()) {
-      if (date.getMonth() == now.getMonth() && date.getDate() == now.getDate()) {
-        var h = date.getHours();
-        var hs = h%12 == 0 ? 12 : h%12;
-        var ampm = h < 12 ? "am" : "pm";
-        return hs + ":" + pad2(date.getMinutes()) + " " + ampm;
+      if (date.getMonth() == now.getMonth()
+          && (date.getDate() == now.getDate()
+             || (date.getDate() + 1 == now.getDate()
+                && now.getHours() < 12
+                && date.getHours() + date.getMinutes()/60 > 12))) {
+        return time;
       } else {
-        return months[date.getMonth()] + ' ' + (1 + date.getDate());
+        return months[date.getMonth()] + ' ' + date.getDate() + cptime;
       }
     } else {
-      return date.getMonth() + "/" + pad2(1 + date.getDate()) + "/" + pad2(date.getFullYear() % 100);
+      return (date.getMonth() + 1) + "/" + pad2(date.getDate()) + "/" + pad2(date.getFullYear() % 100) + cptime;
     }
   };
 

@@ -229,6 +229,10 @@ td.inbox-editor {
     padding-left: 1em;
 }
 td.inbox-summary {
+    color: #999;
+}
+.inbox-summary-name {
+    color: #000;
 }
 td.inbox-time {
     text-align: right;
