@@ -629,7 +629,7 @@ var mv = (function (mv, $) {
       }
     },
     // Gets a short string which might be called the "name" of this blob
-    getName : function (web) {
+    getName : function () {
       var name = this.uuid;
       // sort by date so that later relations take precedence
       var srels = _.sortBy(this.srels, function (rel) {
@@ -642,7 +642,7 @@ var mv = (function (mv, $) {
       });
       return name;
     },
-    getAuthors : function (web) {
+    getAuthors : function () {
       var seen = {}; // being used as a set
       var authors = [];
       // sort by date to order authors
@@ -656,7 +656,22 @@ var mv = (function (mv, $) {
         }
       });
       return authors;
-    }
+    },
+		resolve_deletions : function () {
+			var srels = _.sortBy(this.srels, function (rel) {
+				return -rel.date_created.getTime();
+			});
+			var deleted = {};
+			_.each(srels, function (srel) {
+				if (srel.uuid) { // null uuid for pseudo-relations
+					if (!deleted[srel.uuid] && srel.name === "deletes") {
+						deleted[srel.object] = true;
+						srel.deleted = true;
+					}
+				}
+			});
+		}
+		
   };
   // Prototype for a single relation
   var _Relation = {
@@ -752,6 +767,7 @@ var mv = (function (mv, $) {
       }
       blob.srels = _.map(meta.srels, _.im(this, 'makeRelation'));
       blob.orels = _.map(meta.orels, _.im(this, 'makeRelation'));
+			blob.resolve_deletions();
     },
     makeRelation : function (rel) {
       return _.create(_Relation, {

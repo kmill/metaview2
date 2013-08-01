@@ -323,7 +323,7 @@ var mvui = (function (mvui) {
           dest.html(mvui.render("blob-generic", data));
 
 					mv.UserModel.getUsers(function (users) {
-						_.each(blob.getAuthors(that.web.id), function (author) {
+						_.each(blob.getAuthors(), function (author) {
 							var avatar = $('<div class="blob-author-avatar"/>').attr('user-tooltip', author);
 							var user = users[author];
 							if (user !== undefined) {
@@ -339,12 +339,48 @@ var mvui = (function (mvui) {
               dest.find('.blob-content').html($("<pre/>").text(c));
             });
           }
-          _.each(blob.orels, function (rel) {
-            dest.append($("<p/>").text(rel.uuid + ": " + rel.subject + " " + rel.name + " " + (rel.object || rel.payload)));
+					var relarea = dest.find('.blob-relations-holder');
+					var relcontent = dest.find('.blob-relations');
+					var shownAny = false;
+					relarea.hide();
+          _.each(_.sortBy(blob.srels, function (rel) { return rel.date_created.getTime(); }), function (rel) {
+						if (rel.uuid !== null) {
+							shownAny = true;
+							var el = $('<p/>');
+							el.append($('<a/>').text(rel.name).attr("href", mv.FragmentModel.makeFragment({web : that.web.name, blob : rel.uuid})));
+							if (rel.object) {
+								el.append(' ').append($('<a/>').text("blob").attr("href", mv.FragmentModel.makeFragment({web : that.web.name, blob : rel.subject})));
+							} else {
+								el.append(' ').append($('<span/>').text(rel.payload));
+							}
+							if (rel.isInherited(blob)) {
+								el.append(" (inherited)");
+							}
+							relcontent.append(el);
+						}
           });
-          _.each(blob.srels, function (rel) {
-            dest.append($("<p/>").text(rel.uuid + ": " + rel.subject + " " + rel.name + " " + (rel.object || rel.payload) + " " + (rel.isInherited(blob) ? " inherited" : "")));
+          _.each(_.sortBy(blob.orels, function (rel) { return rel.date_created.getTime(); }), function (rel) {
+						shownAny = true;
+  					var el = $('<p/>')
+	  							.append($('<a/>').text("blob").attr("href", mv.FragmentModel.makeFragment({web : that.web.name, blob : rel.subject})))
+									.append(' ')
+   	 							.append($('<a/>').text(rel.name).attr("href", mv.FragmentModel.makeFragment({web : that.web.name, blob : rel.uuid})))
+									.append(" this");
+						relcontent.append(el);
           });
+					if (!shownAny) {
+						relcontent.append("<p>No relations.</p>");
+					}
+					var rel_toggler = dest.find(".blob-rel-toggler");
+					rel_toggler.text("relations");
+					var rel_expand = true;
+					rel_toggler.on("click", function (e) {
+						e.preventDefault();
+						rel_toggler.text(rel_expand ? "hide" : "relations");
+						relarea.toggle("blind", {}, 500); // TODO figure out how to set which way it should be expanded.
+						rel_expand = !rel_expand;
+						return false;
+					});
 					var tags_el = dest.find('.blob-tags');
 					tags_el.tagit({
 						availableTags : ["research", "fun", "etc"],
@@ -484,12 +520,12 @@ var mvui = (function (mvui) {
         web : this.web.name,
         blob : blob.uuid
       });
-      var blobAuthors = blob.getAuthors(this.web);
+      var blobAuthors = blob.getAuthors();
       var row = $("<tr/>");
       row.append($('<td class="inbox-editor"/>'));
       row.append($('<td class="inbox-summary"/>')
                  .append($('<span class="inbox-summary-name"/>')
-                         .text(blob.getName(this.web)))
+                         .text(blob.getName()))
                  .append(" &mdash; ")
                  .append(blob.summary || blob.content_type)
                 );

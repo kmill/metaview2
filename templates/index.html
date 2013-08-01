@@ -42,6 +42,7 @@
       <%- data.created %>
     </div>
     <div class="blob-header-right">
+			<a href="#" class="blob-rel-toggler"></a>
       <span class="blob-actions">
       actions:
       <a>edit</a>
@@ -49,6 +50,12 @@
     </div>
     <div class="clear"></div>
   </div>
+	<div class="blob-relations-holder">
+		<div class="blob-relations-shadow">
+		</div>
+		<div class="blob-relations">
+		</div>
+	</div>
   <div class="blob-body">
     <div class="blob-content">
       <p><a href="<%= data.rawUrl %>" target="_blank"><%- data.titleish %></a></p>
