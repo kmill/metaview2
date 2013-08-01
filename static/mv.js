@@ -805,6 +805,17 @@ var mv = (function (mv, $) {
 						 function (uuid) {
 							 callback(uuid);
 						 });						 
+		},
+		// TODO make these better
+		addTag : function (web_id, uuid, tag) {
+			mv.rpc("blobs", "add_tag", {web_id : +web_id,
+																	uuid : uuid,
+																	tag : tag});
+		},
+		removeTag : function (web_id, uuid, tag) {
+			mv.rpc("blobs", "remove_tag", {web_id : +web_id,
+																		 uuid : uuid,
+																		 tag : tag});
 		}
   });
 

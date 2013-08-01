@@ -165,4 +165,30 @@ class BlobsRPC(RPCServable) :
                 relations.BinaryRelation.make(web, user, "tag", b, tag)
         self.channels.broadcast([channel.NewBlobMessage(b)])
         return b.uuid
-
+    @rpcmethod
+    def remove_tag(self, user, web_id, uuid, tag) :
+        if web_id not in [w.id for w in models.UserWebAccess.get_for_user(user)] :
+            raise Exception("no such web") # makes sure has explicit access
+        web = models.Web.get_by_id(web_id)
+        b = models.Blob.get_by_uuid(uuid)
+        inherited = relations.get_inherited_relations(web_id, b)
+        inherited_tags = [r for r in inherited if not r.deleted and r.name == "tag"]
+        for r in inherited_tags :
+            if r.payload == tag :
+                relations.BinaryRelation.make(web, user, "deletes", b, r.blob)
+        return True
+    @rpcmethod
+    def add_tag(self, user, web_id, uuid, tag) :
+        if web_id not in [w.id for w in models.UserWebAccess.get_for_user(user)] :
+            raise Exception("no such web") # makes sure has explicit access
+        tag = tag.strip()
+        if not tag : return False
+        web = models.Web.get_by_id(web_id)
+        b = models.Blob.get_by_uuid(uuid)
+        inherited = relations.get_inherited_relations(web_id, b)
+        inherited_tags = [r for r in inherited if not r.deleted and r.name == "tag"]
+        for r in inherited_tags :
+            if r.payload == tag :
+                return True
+        relations.BinaryRelation.make(web, user, "tag", b, tag)
+        return True

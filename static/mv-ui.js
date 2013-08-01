@@ -422,6 +422,12 @@ var mvui = (function (mvui) {
 							tags_el.tagit('createTag', tag);
 						}
 					});
+					tags_el.tagit('option', 'afterTagAdded', function (e, ui) {
+						mv.BlobModel.addTag(that.web.id, blob.uuid, ui.tagLabel);
+					});
+					tags_el.tagit('option', 'afterTagRemoved', function (e, ui) {
+						mv.BlobModel.removeTag(that.web.id, blob.uuid, ui.tagLabel);
+					});
         }
       )();
       mv.BlobModel.getBlob(this.web.id, this.uuid, function (blob) {
