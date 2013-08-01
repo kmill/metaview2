@@ -111,6 +111,7 @@ class BlobsRPC(RPCServable) :
     def rel_as_dict(self, rel) :
         return {"uuid" : None if rel.uuid.startswith("pseudo:") else rel.uuid,
                 "date_created" : httputil.format_timestamp(rel.date_created),
+                "deleted" : getattr(rel, "deleted", None),
                 "name" : rel.name,
                 "subject" : rel.subject_uuid,
                 "object" : rel.object_uuid,
@@ -130,7 +131,7 @@ class BlobsRPC(RPCServable) :
                               "orels" : [self.rel_as_dict(r) for r in orels]})
         return blobs
     @rpcmethod
-    def create_blob(self, user, web_id, content, mime_type=None, title=None, tags=[]) :
+    def create_blob(self, user, web_id, content, mime_type=None, title=None, tags=[], revises=[]) :
         if web_id not in [w.id for w in models.UserWebAccess.get_for_user(user)] :
             raise Exception("no such web") # makes sure has explicit access
         web = models.Web.get_by_id(web_id)
@@ -138,10 +139,27 @@ class BlobsRPC(RPCServable) :
         c = models.Content.get_by_stuff(str(content))
         b = models.Blob.make_blob(user, content_type, c)
         models.WebBlobAccess.add_for_blob(web, b)
+        for puuid in revises :
+            parent_blob = models.Blob.get_by_uuid(puuid)
+            if parent_blob :
+                relations.BinaryRelation.make(web, user, "revises", b, parent_blob)
+        # we don't want to just add tags and title; we want to ensure their presence
+        inherited = relations.get_inherited_relations(web, b)
         if title :
-            relations.BinaryRelation.make(web, user, "title", b, title)
-        for tag in set([t.strip() for t in tags]) :
-            if tag :
+            inherited_title = [r for r in inherited if not r.deleted and r.name == "title"]
+            for r in inherited_title :
+                if r.payload != title :
+                    relations.BinaryRelation.make(web, user, "deletes", b, r.blob)
+            if not any(r.payload == title for r in inherited_title) :
+                relations.BinaryRelation.make(web, user, "title", b, title)
+        tags = set([t.strip() for t in tags if t.strip()])
+        inherited_tags = [r for r in inherited if not r.deleted and r.name == "tag"]
+        inherited_tags_payloads = set(r.payload for r in inherited_tags)
+        for r in inherited_tags :
+            if r not in tags :
+                relations.BinaryRelation.make(web, user, "deletes", b, r.blob)
+        for tag in tags :
+            if tag not in inherited_tags_payloads :
                 relations.BinaryRelation.make(web, user, "tag", b, tag)
         self.channels.broadcast([channel.NewBlobMessage(b)])
         return b.uuid

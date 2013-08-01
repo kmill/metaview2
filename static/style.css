@@ -58,14 +58,14 @@ div.clear {
 }
 
 #content {
-    padding: 1em 1em 1em 1em;
+    padding: 1.5em 1em 1em 1em;
 /*    width: 786px;*/
 }
 
 #footer {
     font-size: 80%;
     width: 768px;
-    padding: 0 1em 2em 3em;
+    padding: 1em 1em 10em 3em;
 }
 
 /* blobs */

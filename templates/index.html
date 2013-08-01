@@ -45,7 +45,7 @@
 			<a href="#" class="blob-rel-toggler"></a>
       <span class="blob-actions">
       actions:
-      <a>edit</a>
+      <a href="#" class="blob-edit-button">edit</a>
       </span>
     </div>
     <div class="clear"></div>
@@ -71,7 +71,7 @@
 <script type="text/template" template-name="compose-blob">
 	<div class="blob-edit-window">
 		<input class="blob-edit-title" type="text" name="title" placeholder="Title (optional)"/>
-		<div class="blob-edit"></div>
+		<div class="blob-edit">Loading...</div>
 		<input class="blob-tags" type="text"/>
 		<input class="blob-save-button" type="submit" name="save" value="Save"/>
 	</div>
@@ -114,7 +114,7 @@
     <div class="header_left">
       Web: <span id="web-selector">(no web)</span>
 			<span id="web-actions">
-				| <a href="#" id="view-inbox">Inbox</a>
+				&nbsp;&nbsp;&nbsp; <a href="#" id="view-inbox">Inbox</a>
 				| <a href="#" id="compose">Compose</a>
 			</span>
     </div>

@@ -175,12 +175,12 @@ var mvui = (function (mvui) {
       if (d['web'] !== this.web.name) {
         return;
       }
-      if (d['blob'] !== undefined) {
-        this.showBlob(d['blob']);
-			} else if (d['action'] === 'compose') {
-				this.showCompose();
+			if (d['action'] === 'compose') {
+				this.showCompose(d['blob']);
       } else if (d['action'] === 'config') {
         this.showConfig();
+			} else if (d['blob'] !== undefined) {
+        this.showBlob(d['blob']);
       } else {
         this.showInbox();
       }
@@ -277,13 +277,18 @@ var mvui = (function (mvui) {
       }
       this.blobContainer.show();
     },
-		showCompose : function () {
+		// fromBlob is either the blob to revise or reply to (optional)
+		showCompose : function (fromBlob) {
 			this.inboxView.hide();
       this.configView.hide();
 			if (this.blobView) this.blobView.hide();
+			if (this.composeView != undefined) {
+				this.composeView.destroy();
+				this.composeView = undefined;
+			}
 			if (this.composeView === undefined) {
 				this.composeContainer = $('<div class="web-blob-compose"/>').appendTo(this.el);
-				this.composeView = _.build(mvui._BlobEditView, this.composeContainer, this.web);
+				this.composeView = _.build(mvui._BlobEditView, this.composeContainer, this.web, fromBlob);
 			}
 			this.composeView.show();
 		}
@@ -339,22 +344,24 @@ var mvui = (function (mvui) {
               dest.find('.blob-content').html($("<pre/>").text(c));
             });
           }
+					var editbutton = dest.find('.blob-edit-button');
+					editbutton.attr('href', mv.FragmentModel.makeFragment({web : that.web.name, blob : blob.uuid, action : "compose"}));
 					var relarea = dest.find('.blob-relations-holder');
 					var relcontent = dest.find('.blob-relations');
 					var shownAny = false;
 					relarea.hide();
           _.each(_.sortBy(blob.srels, function (rel) { return rel.date_created.getTime(); }), function (rel) {
-						if (rel.uuid !== null) {
+						if (rel.uuid !== null && rel.name != "deletes" && !(rel.name == "revises" && rel.isInherited(blob))) {
 							shownAny = true;
 							var el = $('<p/>');
-							el.append($('<a/>').text(rel.name).attr("href", mv.FragmentModel.makeFragment({web : that.web.name, blob : rel.uuid})));
+							el.append($('<a/>').append($("<strong/>").text(rel.name)).attr("href", mv.FragmentModel.makeFragment({web : that.web.name, blob : rel.uuid})));
 							if (rel.object) {
-								el.append(' ').append($('<a/>').text("blob").attr("href", mv.FragmentModel.makeFragment({web : that.web.name, blob : rel.subject})));
+								el.append(' ').append($('<a/>').text("blob").attr("href", mv.FragmentModel.makeFragment({web : that.web.name, blob : rel.object})));
 							} else {
 								el.append(' ').append($('<span/>').text(rel.payload));
 							}
 							if (rel.isInherited(blob)) {
-								el.append(" (inherited)");
+								el.append(" <em>(inherited)</em>");
 							}
 							relcontent.append(el);
 						}
@@ -364,8 +371,8 @@ var mvui = (function (mvui) {
   					var el = $('<p/>')
 	  							.append($('<a/>').text("blob").attr("href", mv.FragmentModel.makeFragment({web : that.web.name, blob : rel.subject})))
 									.append(' ')
-   	 							.append($('<a/>').text(rel.name).attr("href", mv.FragmentModel.makeFragment({web : that.web.name, blob : rel.uuid})))
-									.append(" this");
+   	 							.append($('<a/>').append($("<strong/>").text(rel.name)).attr("href", mv.FragmentModel.makeFragment({web : that.web.name, blob : rel.uuid})))
+									.append(" <em>this</em>");
 						relcontent.append(el);
           });
 					if (!shownAny) {
@@ -377,7 +384,7 @@ var mvui = (function (mvui) {
 					rel_toggler.on("click", function (e) {
 						e.preventDefault();
 						rel_toggler.text(rel_expand ? "hide" : "relations");
-						relarea.toggle("blind", {}, 500); // TODO figure out how to set which way it should be expanded.
+						relarea.toggle("blind", {}, 250); // TODO figure out how to set which way it should be expanded.
 						rel_expand = !rel_expand;
 						return false;
 					});
@@ -407,14 +414,15 @@ var mvui = (function (mvui) {
   });
 
 	mvui._BlobEditView = _.create(_View, {
-		_init : function (el, web) {
+		_init : function (el, web, fromBlob) {
 			_View._init.call(this, el);
 			this.web = web;
+			this.fromBlob = fromBlob;
 			this.render();
 		},
 		destroy : function() {
 			if (this.editor) {
-				this.editor.clear();
+				//this.editor.clear();
 			}
 			_View.destroy.call(this);
 		},
@@ -424,16 +432,40 @@ var mvui = (function (mvui) {
 			}));
 			var that = this;
 			that.el.find('.blob-save-button').prop('disabled', true);
-			_.delay(function () {
-				that.el.find('.blob-save-button').prop('disabled', false);
-				that.editor = CodeMirror(that.el.find(".blob-edit")[0], {
-					lineWrapping : true,
-					viewportMargin : Infinity,
-					lineNumbers : true
-//					placeholder : "Content"
-				});
+			_.defer(function () {
+				_.seq(function (callback) {
+					if (that.fromBlob) {
+						mv.BlobModel.getBlob(that.web.id, that.fromBlob, function (blob) {
+							var tags = _.pluck(_.where(blob.srels, {name : 'tag'}), 'payload');
+							tags.sort();
+							_.each(tags, function(tag) {
+								if (tag) {
+									tags_el.tagit('createTag', tag);
+								}
+							});
+							if (blob.content_type.slice(0, "mime:text/".length) === "mime:text/") {
+								blob.getContent(callback);
+							} else {
+								callback("");
+							}
+						});
+					} else {
+						callback("");
+					}
+				},
+				function (value) {
+					that.el.find('.blob-save-button').prop('disabled', false);
+					that.el.find(".blob-edit").empty();
+					that.editor = CodeMirror(that.el.find(".blob-edit")[0], {
+						lineWrapping : true,
+						viewportMargin : Infinity,
+						lineNumbers : true,
+						value : value
+					});
+				})();
 			});
-			this.el.find('.blob-tags').tagit({
+			var tags_el = this.el.find('.blob-tags');
+			tags_el.tagit({
 				availableTags : ["research", "fun", "etc"],
 				autocomplete : {delay:250, minLength:1},
 				removeConfirmation : true,
@@ -448,7 +480,7 @@ var mvui = (function (mvui) {
 				var content = that.editor.getValue();
 				var title = that.el.find('.blob-edit-title').val() || undefined;
 				var tags = that.el.find('.blob-tags').tagit('assignedTags');
-				mv.BlobModel.createBlob(that.web.id, content, "text/metaview-email-style", title, tags,
+				mv.BlobModel.createBlob(that.web.id, content, "text/metaview-email-style", title, tags, that.fromBlob ? [that.fromBlob] : [],
 															 function (uuid) {
 																 if (uuid) {
 																	 window.location = that.nextUrl || mv.FragmentModel.makeFragment({web : that.web.name, blob : uuid});

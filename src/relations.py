@@ -113,6 +113,7 @@ class CachedRelation(object) :
         self.subject_uuid = subject_uuid
         self.object_uuid = object_uuid
         self.payload = payload
+        self.deleted = False # assume not deleted until get_inherited_relations says otherwise
         self._blob = None
         self._subject = None
         self._object = None
@@ -169,7 +170,7 @@ class CachedRelation(object) :
         if isinstance(blob_uuid, models.Blob) :
             blob_uuid = blob_uuid.uuid
         q = models.DB.execute("""
-        select rblob.uuid, rblob.date_created, r.relation, r.object_id, oblob.uuid as object_uuid, r.payload
+        select rblob.uuid, rblob.date_created, r.relation, sblob.uuid as subject_uuid, oblob.uuid as object_uuid, r.payload
         from relations as r
         inner join blobs as rblob on rblob.id=r.blob_id
         inner join blobs as sblob on sblob.id=r.subject_id
@@ -180,7 +181,7 @@ class CachedRelation(object) :
             rels.append(CachedRelation(uuid=row['uuid'],
                                        date_created=datetime.datetime.utcfromtimestamp(row["date_created"]),
                                        name=Relation.get_relation_name(row['relation']),
-                                       subject_uuid=blob_uuid,
+                                       subject_uuid=row['subject_uuid'],
                                        object_uuid=row['object_uuid'],
                                        payload=row['payload']))
         return rels
@@ -229,7 +230,15 @@ def get_inherited_relations(web_id, blob_uuid) :
         inher_rels[uuid] = my_inher_rels
         return my_inher_rels
     # don't need to keep track of which r[0] are None because inherited <=> rel.subject_uuid != blob_uuid
-    return [r[1] for r in _get_rels(blob_uuid)]
+    rels = [r[1] for r in _get_rels(blob_uuid)]
+    # mark deletions
+    rels.sort(key=lambda r : r.date_created, reverse=True)
+    deleted = set()
+    for rel in rels :
+        if rel.uuid and rel.uuid not in deleted and rel.name == "deletes" :
+            deleted.add(rel.object)
+            rel.deleted = True
+    return rels
 
 @rpc_module("relations")
 class RelationsRPC(RPCServable) :

@@ -656,22 +656,7 @@ var mv = (function (mv, $) {
         }
       });
       return authors;
-    },
-		resolve_deletions : function () {
-			var srels = _.sortBy(this.srels, function (rel) {
-				return -rel.date_created.getTime();
-			});
-			var deleted = {};
-			_.each(srels, function (srel) {
-				if (srel.uuid) { // null uuid for pseudo-relations
-					if (!deleted[srel.uuid] && srel.name === "deletes") {
-						deleted[srel.object] = true;
-						srel.deleted = true;
-					}
-				}
-			});
-		}
-		
+    }		
   };
   // Prototype for a single relation
   var _Relation = {
@@ -767,13 +752,13 @@ var mv = (function (mv, $) {
       }
       blob.srels = _.map(meta.srels, _.im(this, 'makeRelation'));
       blob.orels = _.map(meta.orels, _.im(this, 'makeRelation'));
-			blob.resolve_deletions();
     },
     makeRelation : function (rel) {
       return _.create(_Relation, {
         uuid : rel.uuid,
         date_created : new Date(rel.date_created),
         name : rel.name,
+				deleted : rel.deleted,
         subject : rel.subject,
         object : rel.object,
         payload : rel.payload
@@ -809,12 +794,13 @@ var mv = (function (mv, $) {
       });
       that.pullBlobs();
     },
-		createBlob : function (web_id, content, mime_type, title, tags, callback) {
+		createBlob : function (web_id, content, mime_type, title, tags, revises, callback) {
 			mv.rpc("blobs", "create_blob", {web_id : +web_id,
 																			content : content,
 																			mime_type : mime_type,
 																			title : title,
-																			tags : tags
+																			tags : tags,
+																			revises : revises
 																		 },
 						 function (uuid) {
 							 callback(uuid);
