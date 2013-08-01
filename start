@@ -1,2 +1,2 @@
 #!/bin/sh
-python2.7 src/main.py --host=mv.kylem.net
+xargs -a config python2.7 src/main.py
