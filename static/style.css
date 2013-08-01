@@ -29,6 +29,7 @@ a:hover {
     padding: 3px 1em 2px 1em;
     background: #ddf;
     font-family: "helvetica neue", "helvetica", "arial", "sans-serif";
+    font-size: 12pt;
     border-style: solid;
     border-width: 1px 0 1px 0;
     border-color: #bbd;
@@ -77,7 +78,7 @@ div.blob {
 }
 div.blob-header {
     padding: 1px 1em 2px 1em;
-    font-size: 50%;
+    font-size: 80%;
     background: #ddf;
     font-family: "helvetica", "arial", "sans-serif";
     border-style: solid;
@@ -89,7 +90,7 @@ div.blob-body {
 }
 div.blob-footer {
     padding: 0 0 1px 0;
-    font-size: 50%;
+    font-size: 80%;
     color: #ccc;
     font-family: "helvetica", "arial", "sans-serif";
 }
@@ -212,7 +213,9 @@ table.inbox-table {
 .inbox-table td {
     empty-cells: show;
     overflow: hidden;
+    text-overflow: clip;
     vertical-align: middle;
+    white-space: nowrap;
     border-style: solid;
     border-width: 0 0 1px 0;
     border-color: #fefefe;
