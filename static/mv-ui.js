@@ -344,6 +344,23 @@ var mvui = (function (mvui) {
               dest.find('.blob-content').html($("<pre/>").text(c));
             });
           }
+					if (blob.content_type.slice(0,"relation:".length) === "relation:") {
+            dest.find('.blob-content').text("Loading...");
+            blob.getContent(function (c) {
+              var el = dest.find('.blob-content').empty();
+							var pel = $("<p/>").appendTo(el);
+							var rel = c.split("\n", 2);
+							pel.append($('<a/>').text("blob").attr("href", mv.FragmentModel.makeFragment({web : that.web.name, blob : rel[0]})));
+							pel.append(" ");
+							pel.append($("<strong/>").text(blob.content_type.slice("relation:".length)));
+							pel.append(" ");
+							if (/^[0-9a-f]{32}$/.test(rel[1])) { // is it uuid-ish?
+								pel.append($('<a/>').text("blob").attr("href", mv.FragmentModel.makeFragment({web : that.web.name, blob : rel[1]})));
+							} else {
+								pel.append(rel[1]);
+							}
+            });
+					}
 					var editbutton = dest.find('.blob-edit-button');
 					editbutton.attr('href', mv.FragmentModel.makeFragment({web : that.web.name, blob : blob.uuid, action : "compose"}));
 					var relarea = dest.find('.blob-relations-holder');
@@ -351,7 +368,7 @@ var mvui = (function (mvui) {
 					var shownAny = false;
 					relarea.hide();
           _.each(_.sortBy(blob.srels, function (rel) { return rel.date_created.getTime(); }), function (rel) {
-						if (rel.uuid !== null && rel.name != "deletes" && !(rel.name == "revises" && rel.isInherited(blob))) {
+						if (rel.uuid !== null && !rel.deleted && rel.name != "deletes" && !(rel.name == "revises" && rel.isInherited(blob))) {
 							shownAny = true;
 							var el = $('<p/>');
 							el.append($('<a/>').append($("<strong/>").text(rel.name)).attr("href", mv.FragmentModel.makeFragment({web : that.web.name, blob : rel.uuid})));
@@ -398,7 +415,7 @@ var mvui = (function (mvui) {
 						placeholderText : "Add tags",
 						singleField : true
 					});
-					var tags = _.pluck(_.where(blob.srels, {name : 'tag'}), 'payload');
+					var tags = _.pluck(_.where(blob.srels, {name : 'tag', deleted : false}), 'payload');
 					tags.sort();
 					_.each(tags, function(tag) {
 						if (tag) {
@@ -436,7 +453,7 @@ var mvui = (function (mvui) {
 				_.seq(function (callback) {
 					if (that.fromBlob) {
 						mv.BlobModel.getBlob(that.web.id, that.fromBlob, function (blob) {
-							var tags = _.pluck(_.where(blob.srels, {name : 'tag'}), 'payload');
+							var tags = _.pluck(_.where(blob.srels, {name : 'tag', deleted : false}), 'payload');
 							tags.sort();
 							_.each(tags, function(tag) {
 								if (tag) {

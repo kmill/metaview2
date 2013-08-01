@@ -92,6 +92,9 @@ class BinaryRelation(Relation) :
             object_id = content.id # for rel cache
             content = content.uuid # for rel blob
         else :
+            import re
+            if re.match("^[0-9a-f]{32}$", content) :
+                object_id = payload_text # for rel cache
             payload_text = content # for rel cache
         if not isinstance(content, basestring) :
             raise TypeError("content must be a string (or a blob)")
@@ -139,8 +142,8 @@ class CachedRelation(object) :
             self._object = models.Blob.get_by_uuid(self.object_uuid)
         return self._object
     def __repr__(self) :
-        return "CachedRelation(uuid=%r,date_created=%r,name=%r,subject_uuid=%r,object_uuid=%r,payload=%r)" \
-            % (self.uuid, self.date_created, self.name, self.subject_uuid, self.object_uuid, self.payload)
+        return "CachedRelation(uuid=%r,deleted=%r,date_created=%r,name=%r,subject_uuid=%r,object_uuid=%r,payload=%r)" \
+            % (self.uuid, self.deleted, self.date_created, self.name, self.subject_uuid, self.object_uuid, self.payload)
     @staticmethod
     def get_for_subject(web_id, blob_uuid) :
         if isinstance(web_id, models.Web) :
@@ -236,7 +239,8 @@ def get_inherited_relations(web_id, blob_uuid) :
     deleted = set()
     for rel in rels :
         if rel.uuid and rel.uuid not in deleted and rel.name == "deletes" :
-            deleted.add(rel.object)
+            deleted.add(rel.object_uuid)
+        if rel.uuid in deleted :
             rel.deleted = True
     return rels
 

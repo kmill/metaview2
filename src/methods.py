@@ -150,13 +150,15 @@ class BlobsRPC(RPCServable) :
             for r in inherited_title :
                 if r.payload != title :
                     relations.BinaryRelation.make(web, user, "deletes", b, r.blob)
+                    print "deleting",r
             if not any(r.payload == title for r in inherited_title) :
                 relations.BinaryRelation.make(web, user, "title", b, title)
+                print "adding"
         tags = set([t.strip() for t in tags if t.strip()])
         inherited_tags = [r for r in inherited if not r.deleted and r.name == "tag"]
         inherited_tags_payloads = set(r.payload for r in inherited_tags)
         for r in inherited_tags :
-            if r not in tags :
+            if r.payload not in tags :
                 relations.BinaryRelation.make(web, user, "deletes", b, r.blob)
         for tag in tags :
             if tag not in inherited_tags_payloads :
