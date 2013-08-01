@@ -404,7 +404,7 @@ var mv = (function (mv, $) {
         function (webs) {
           if (_.size(webs) === 1) {
             // there is only one option! no need for fancy stuff
-            that.currentWebId = _.first(_.keys(webs));
+            that.currentWebId = _.first(webs).id;
           }
           if (that.currentWebId === undefined) {
             var web = that.getWebByName(mv.FragmentModel.getPart('web'));
@@ -416,7 +416,7 @@ var mv = (function (mv, $) {
               that.currentWebId = web_id;
             }
           }
-          if (that.currentWebId !== undefined && that.getCurrentWeb()) {
+          if (that.currentWebId !== undefined && that.getCurrentWeb() !== undefined) {
             console.log("selected web");
             that.trigger("selected");
             if (that.getCurrentWeb().name !== mv.FragmentModel.getPart('web')) {
@@ -598,7 +598,25 @@ var mv = (function (mv, $) {
     editor_email : undefined,
     content_type : undefined,
     content : undefined,
+    summary : undefined,
+
+    srels : undefined,
+    orels : undefined,
     
+    getUrl : function () {
+      var filename;
+      // sort by date so that later relations take precedence
+      var srels = _.sortBy(this.srels, function (rel) {
+        return rel.date_created.getTime();
+      });
+      _.each(srels, function (rel) {
+        if (rel.name === "filename") {
+          filename = rel.payload || filename;
+        }
+      });
+      return '/blob/' + this.uuid + (filename ? '/' + filename : '');
+    },
+
     getContent : function (callback) {
       if (this.content !== undefined) {
         callback(this.content);
@@ -610,146 +628,55 @@ var mv = (function (mv, $) {
         });
       }
     },
-    // returns a graph of [UUID -> Blob, UUID -> [parent UUID]]
-    getParentGraph : function (webid, callback) {
-      var finish = _.once(callback);
-      var seen = {};
-      var links = {};
-      var seeing = {}; // used as a set
-      function step(blob) {
-        if (!_.has(seen, blob.uuid)) {
-          seen[blob.uuid] = seen;
-          var srels = mv.BlobModel.getRelationsForSubject(webid, blob.uuid);
-          srels = _.where(srels, {type : "revises"});
-          var parents = _.pluck(srels, 'payload');
-          links[blob.uuid] = parents;
-          _.each(parents, function (par) {
-            if (!_.has(seeing, par) && !_.has(seen, par)) {
-              seeing[par] = true;
-              mv.BlobModel.getBlob(webid, par, step);
-            }
-          });
-          delete seeing[blob.uuid];
-          if (_.size(seeing) === 0) {
-            finish({ blobs : seen, edges : links});
-          }
-        }
-      }
-      step(this);
-    },
-    getRelations : function (webid, callback) {
-      var that = this;
-      this.getParentGraph(webid, function (g) {
-        // The links might go counter-temporally; we break those links
-        function realParents(uuid) {
-          return _.filter(g.edges[uuid], function (puuid) {
-            return g.blobs[puuid] && g.blobs[uuid].date_created.getTime() > g.blobs[puuid].date_created.getTime();
-          });
-        }
-
-        function isDeleted(uuid) {
-          var dels = _.where(mv.BlobModel.getRelationsForSubject(webid, uuid),
-                             {type : "deleted"});
-          return dels.length > 0 && _.every(dels, function (rel) { return isDeleted(rel.blob.uuid); });
-        }
-        
-        var rels = {}; // UUID -> [(Inherited?, Deleted?, Rel)]
-        function getrels(uuid) {
-          if (_.has(rels, uuid)) {
-            return rels[uuid];
-          }
-          var inherited = {};
-          _.each(realParents(uuid), function (puuid) {
-            _.each(getrels(puuid), function (relEntry) {
-              var type = relEntry[2].type;
-              if (type === "revises") {
-                // don't inherit
-              } else if (type === "deleted") {
-                // don't inherit
-              } else if (type === "mask-relation") {
-                // don't inherit
-              } else if (relEntry[1]) {
-                // deleted. don't inherit
-              } else {
-                inherited[relEntry[2].blob.uuid] = relEntry[2];
-              }
-            });
-          });
-          
-          var srels = _.map(mv.BlobModel.getRelationsForSubject(webid, uuid),
-                            function (rel) { return [isDeleted(rel.blob.uuid), rel]; });
-
-          var masked = [];
-          _.each(srels, function (rel) {
-            if (!rel[0] && rel[1].type === "mask-relation") {
-              masked.push(rel.payload);
-            }
-          });
-          var myrels = [];
-          _.each(inherited, function (rel) {
-            if (!_.contains(masked, rel.blob.uuid)) {
-              myrels.push([true, false, rel]);
-            }
-          });
-          _.each(srels, function (rel) {
-            myrels.push([false, rel[0], rel[1]]);
-          });
-          rels[uuid] = myrels;
-          return myrels;
-        }
-        callback(getrels(that.uuid));
-      });
-    },
+    // Gets a short string which might be called the "name" of this blob
     getName : function (web) {
       var name = this.uuid;
-      var srels = mv.BlobModel.getRelationsForSubject(web.id, this.uuid);
       // sort by date so that later relations take precedence
-      srels = _.sortBy(srels, function (rel) {
-        return rel.blob.date_created.getTime();
+      var srels = _.sortBy(this.srels, function (rel) {
+        return rel.date_created.getTime();
       });
       _.each(srels, function (rel) {
-        if (rel.type === "filename" || rel.type === "title") {
+        if (rel.name === "filename" || rel.name === "title") {
           name = rel.payload || name;
         }
       });
       return name;
     },
-    getSummary : function () {
-    },
     getAuthors : function (web) {
       var seen = {}; // being used as a set
-      var toSee = [this];
       var authors = [];
-      while (toSee.length > 0) {
-        var see_now = toSee.pop();
-        if (!_.has(seen, see_now.uuid)) {
-          seen[see_now.uuid] = true;
-          if (!_.contains(authors, see_now.editor_email)) {
-            authors.push(see_now.editor_email);
-          }
-          //var parents = see_now.getParents(web);
-          //toSee.push.apply(toSee, parents);
+      // sort by date to order authors
+      var srels = _.sortBy(this.srels, function (rel) {
+        return rel.date_created.getTime();
+      });
+      _.each(srels, function (rel) {
+        if (rel.name === "editor" && !_.has(seen, rel.payload)) {
+          authors.push(rel.payload);
+          seen[rel.payload] = true;
         }
-      }
-      authors.reverse();
+      });
       return authors;
     }
   };
   // Prototype for a single relation
   var _Relation = {
-    blob : undefined,
-    type : undefined,
+    uuid : undefined,
+    date_created : undefined,
+    name : undefined,
     subject : undefined,
-    payload : undefined
+    object : undefined,
+    payload : undefined,
+
+    isInherited : function (blob) {
+      // (not pseudo) and (for other subject)
+      return this.uuid !== null && blob.uuid !== this.subject;
+    }
   };
 
   var _BlobModel = _.create(_Model, {
     _init : function () {
       _Model._init.call(this);
       this.knownBlobs = {};
-      this.relationsFromSubject = {};
-      this.relationsFromObject = {};
-      this.relationTypes = {};
       this.pullCallbacks = [];
       this.doingPull = false;
 //      this.addEventType("updated"); // for when the known blobs have changed
@@ -777,9 +704,11 @@ var mv = (function (mv, $) {
       uuids = _.filter(uuids, function (uuid) { return !_.has(knownWebBlobs, uuid); });
       mv.rpc("blobs", "get_blob_metadata", {"web_id" : web_id, "uuids" : uuids},
              function (blobs) {
+               // incorporate new data
                _.each(blobs, function (meta) {
                  that.addBlob(web_id, meta);
                });
+               // do callbacks
                var oldPullCallbacks = that.pullCallbacks;
                that.pullCallbacks = [];
                _.each(oldPullCallbacks, function (val) {
@@ -794,6 +723,7 @@ var mv = (function (mv, $) {
                    that.pullCallbacks.push(val);
                  }
                });
+               // housekeeping, maybe run again
                that.doingPull = false;
                if (_.size(that.pullCallbacks) > 0) {
                  that.pullBlobs();
@@ -808,39 +738,30 @@ var mv = (function (mv, $) {
         this.knownBlobs[web_id] = {};
       }
       var knownWebBlobs = this.knownBlobs[web_id];
-      var blob = knownWebBlobs[meta.uuid];
+      var blob = knownWebBlobs[meta.blob.uuid];
       if (blob === undefined) {
         blob = _.create(_Blob, {
-          uuid : meta.uuid,
-          date_created : new Date(meta.date_created),
-          editor_email : meta.editor_email,
-          content_type : meta.content_type,
-          content : meta.content // might be undefined
+          uuid : meta.blob.uuid,
+          date_created : new Date(meta.blob.date_created),
+          editor_email : meta.blob.editor_email,
+          content_type : meta.blob.content_type,
+          summary : meta.blob.summary,
+          content : meta.blob.content // might be undefined
         });
-        knownWebBlobs[meta.uuid] = blob;
-        if (blob.content_type.substring(0, 9) == "relation:") {
-          this.addRelation(web_id, blob);
-        }
+        knownWebBlobs[meta.blob.uuid] = blob;
       }
+      blob.srels = _.map(meta.srels, _.im(this, 'makeRelation'));
+      blob.orels = _.map(meta.orels, _.im(this, 'makeRelation'));
     },
-    addRelation : function (web_id, r) {
-      this.relationsFromSubject[web_id] = this.relationsFromSubject[web_id] || {};
-      this.relationsFromObject[web_id] = this.relationsFromObject[web_id] || {};
-      var parts = r.content.split("\n", 2);
-      var rel = _.create(_Relation, {
-        blob : r,
-        type : r.content_type.substring(9), // remove "relation:"
-        subject : parts[0],
-        payload : parts[1]
+    makeRelation : function (rel) {
+      return _.create(_Relation, {
+        uuid : rel.uuid,
+        date_created : new Date(rel.date_created),
+        name : rel.name,
+        subject : rel.subject,
+        object : rel.object,
+        payload : rel.payload
       });
-      this.relationsFromSubject[web_id][rel.subject] = this.relationsFromSubject[web_id][rel.subject] || [];
-      this.relationsFromSubject[web_id][rel.subject].push(rel);
-      if (rel.payload != undefined
-          && this.relationTypes[rel.type] !== undefined
-          && this.relationTypes[rel.type].has_object) {
-        this.relationsFromObject[web_id][rel.payload] = this.relationsFromObject[web_id][rel.payload] || [];
-        this.relationsFromObject[web_id][rel.payload] = rel;
-      }
     },
     getBlob : function (web_id, blob_uuid, callback, inhibitPull) {
       callback = callback || function () {};
@@ -871,34 +792,11 @@ var mv = (function (mv, $) {
         that.getBlob(web_id, uuid, _callback, true);
       });
       that.pullBlobs();
-    },
-    getRelationsForSubject : function (web_id, blob_uuid) {
-      if (this.relationsFromSubject[web_id] !== undefined) {
-        return this.relationsFromSubject[web_id][blob_uuid] || [];
-      } else {
-        return [];
-      }
-    },
-    getRelationsForObject : function (web_id, blob_uuid) {
-      if (this.relationsFromObject[web_id] !== undefined) {
-        return this.relationsFromObject[web_id][blob_uuid] || [];
-      } else {
-        return [];
-      }
     }
   });
 
   // The actual blob model
   mv.BlobModel = _.build(_BlobModel);
-
-  // Relations
-  // ---------
-
-  mv.RelationDef = {
-    has_object : false
-  };
-
-  mv.BlobModel.relationTypes["in-reply-to"] = _.create(mv.RelationDef, {has_object : true});
 
 
   // File uploads

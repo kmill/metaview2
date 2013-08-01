@@ -14,6 +14,9 @@ def db_connect(dbfile) :
     if not os.path.isfile(dbfile) :
         raise TypeError("The database file must be created first.")
     DB = sqlite3.connect(dbfile)
+    DB.executescript("""
+        pragma foreign_keys = ON;
+    """)
     DB.row_factory = sqlite3.Row
 
 class Web(object) :
@@ -190,6 +193,12 @@ class Blob(object) :
             created = datetime.datetime.utcfromtimestamp(r["date_created"])
             return Blob(id=r["id"], uuid=r["uuid"], date_created=created,
                         editor_email=r["editor_email"], content_type=r["content_type"], content_hash=r["content_hash"])
+    @staticmethod
+    def get_created_by_uuid(uuid) :
+        r = DB.execute("select date_created from blobs where uuid=?", (uuid,)).fetchone()
+        if r == None :
+            return None
+        return datetime.datetime.utcfromtimestamp(r["date_created"])
     @staticmethod
     def make_blob(editor, content_type, content) :
         if isinstance(content, Content) :

@@ -279,9 +279,7 @@ var mvui = (function (mvui) {
           if (blob === undefined) {
             dest.text("Error: no such blob.");
           } else {
-            that.getTitleish(function (titleish) {
-              callback(blob, dest, titleish);
-            });
+            callback(blob, dest, blob.getName());
           }
         },
         function (blob, dest, titleish, callback) {
@@ -292,7 +290,7 @@ var mvui = (function (mvui) {
             content_type : blob.content_type,
             editor : blob.editor_email,
             titleish : titleish,
-            rawUrl : "/blob/" + blob.uuid + that.getFilename(that.web, blob)
+            rawUrl : blob.getUrl()
           };
           dest.html(mvui.render("blob-generic", data));
           if (blob.content_type.slice(0,"mime:text/".length) === "mime:text/") {
@@ -301,67 +299,19 @@ var mvui = (function (mvui) {
               dest.find('.blob-content').html($("<pre/>").text(c));
             });
           }
-          blob.getRelations(that.web.id, function (rels) {
-            _.each(rels, function (r) {
-              var t = r[0] ? "inherited " : " ";
-              t += r[1] ? "deleted " : " ";
-              t += r[2].type + " payload=" + r[2].payload;
-              dest.append($("<p/>").text(t));
-            });
+          _.each(blob.orels, function (rel) {
+            dest.append($("<p/>").text(rel.uuid + ": " + rel.subject + " " + rel.name + " " + (rel.object || rel.payload)));
+          });
+          _.each(blob.srels, function (rel) {
+            dest.append($("<p/>").text(rel.uuid + ": " + rel.subject + " " + rel.name + " " + (rel.object || rel.payload) + " " + (rel.isInherited(blob) ? " inherited" : "")));
           });
         }
       )();
       mv.BlobModel.getBlob(this.web.id, this.uuid, function (blob) {
       });
       this.el.empty().append(wrapper);
-    },
-    getFilename : function (web, blob) {
-      var filename = "";
-      if (blob !== undefined) {
-        var srels = mv.BlobModel.getRelationsForSubject(web.id, blob.uuid);
-        _.each(srels, function (rel) {
-          if (rel.type === "filename" && rel.payload) {
-            filename = "/" + rel.payload;
-          }
-        });
-      }
-      return filename;
-    },
-    // Gets a title-like thing for the blob
-    getTitleish : function (callback) {
-      var that = this;
-      _.seq(
-        _.im(mv.BlobModel, 'getBlob', this.web.id, this.uuid),
-        function (blob) {
-          var titleish = that.uuid;
-          if (blob !== undefined) {
-            var srels = mv.BlobModel.getRelationsForSubject(that.web.id, that.uuid);
-            _.each(srels, function (rel) {
-              console.log(rel.type);
-              if (_.contains(["filename", "title"], rel.type)) {
-                titleish = rel.payload || titleish;
-              }
-            });
-          }
-          callback(titleish);
-        }
-      )();
     }
   });
-
-//   mvui.makeBlobView = function (webid, uuid) {
-//     return _.build(_BlobView, webid, uuid);
-//   };
-
-//   mvui.renderBlobWrapper = function (webid, uuid, content) {
-//     return mvui.render("blob-wrapper",
-//                        {webid : webid,
-//                         uuid : uuid,
-//                         content : content});
-//   };
-//   mvui.renderBlob = function (webid, uuid) {
-//     return mvui.makeBlobView(webid, uuid).render();
-//   };
 
   mvui._InboxView = _.create(_View, {
     _init : function (el, web) {
@@ -428,7 +378,7 @@ var mvui = (function (mvui) {
                  .append($('<span class="inbox-summary-name"/>')
                          .text(blob.getName(this.web)))
                  .append(" &mdash; ")
-                 .append(blob.content_type)
+                 .append(blob.summary || blob.content_type)
                 );
       row.append($('<td class="inbox-time"/>').append(mv.shortTime(blob.date_created)));
       row.on("click", function (e) {

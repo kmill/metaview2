@@ -9,16 +9,18 @@ from rpcmodules import rpc_module
 import minirpc
 from minirpc import rpcmethod, RPCServable
 
+import datetime
+
 class Relation(object) :
     _cached_relation_types = {}
     _cached_relation_types_by_id = {}
     def __init__(self, backing_blob=None) :
         """Treats a blob as a relation."""
-        self.backing_blob = backing_blob
+        self._backing_blob = backing_blob
     @property
     def type(self) :
         if not self.backing_blob.content_type.startswith("relation:") :
-            return None
+            raise TypeError("The blob %s is not a relation." % self.backing_blob.uuid)
         else :
             return self.backing_blob.content_type[len("relation:"):]
     @property
@@ -54,32 +56,11 @@ class Relation(object) :
             else :
                 raise KeyError(id)
 
-class UnaryRelation(Relation) :
-    """A unary relation has one thing in its payload, the uuid of a
-    blob. (Note: such a relation is known as a predicate.)"""
-    def __init__(self, *arg, **kwargs) :
-        super(UnaryRelation, self).__init__(*arg, **kwargs)
-        self._subject = None
-    @property
-    def subject(self) :
-        if self._subject == None :
-            self._subject = models.get_by_uuid(self.raw_payload)
-        return self._subject
-    @staticmethod
-    def make(web, editor, name, subject) :
-        """Creates and stores a new unary relation blob."""
-        payload = models.Content.get_by_stuff(subject.uuid)
-        b = models.Blob.make_blob(editor, "relation:" + name, payload)
-        relid = Relation.get_relation_type_id(name)
-        models.DB.execute("insert into relations (web_id, blob_id, subject_id, relation) values (?,?,?,?)",
-                          (web.id, b.id, subject.id, relid))
-        return b
-
 class BinaryRelation(Relation) :
     """A binary relation relates a blob to some object of some kind
     (such as a string or a blob)."""
     def __init__(self, *arg, **kwargs) :
-        super(UnaryRelation, self).__init__(*arg, **kwargs)
+        super(BinaryRelation, self).__init__(*arg, **kwargs)
         self._subject = None
         self._object = None
     @property
@@ -108,67 +89,147 @@ class BinaryRelation(Relation) :
         object_id = None
         payload_text = None
         if isinstance(content, models.Blob) :
-            object_id = content.id
-            content = content.uuid
+            object_id = content.id # for rel cache
+            content = content.uuid # for rel blob
         else :
-            payload_text = content
+            payload_text = content # for rel cache
         if not isinstance(content, basestring) :
             raise TypeError("content must be a string (or a blob)")
         payload = models.Content.get_by_stuff("%s\n%s" % (subject.uuid, content))
         b = models.Blob.make_blob(editor, "relation:" + name, payload)
+        models.WebBlobAccess.add_for_blob(web, b)
+        # cache the relation (otherwise traversal would be horrendous!)
         relid = Relation.get_relation_type_id(name)
-        print (web.id, b.id, subject.id, relid, object_id, payload_text)
-        models.DB.execute("insert into relations (web_id, blob_id, subject_id, relation, object_id, payload) values (?,?,?,?,?,?)",
-                          (web.id, b.id, subject.id, relid, object_id, payload_text))
+        with models.DB :
+            models.DB.execute("insert into relations (web_id, blob_id, subject_id, relation, object_id, payload) values (?,?,?,?,?,?)",
+                              (web.id, b.id, subject.id, relid, object_id, payload_text))
         return b
 
-def get_relations_for_subject(web_id, blob_uuid) :
-    """Gets all relations which for which the blob is the
-    subject."""
+class CachedRelation(object) :
+    def __init__(self, uuid, date_created, name, subject_uuid, object_uuid=None, payload=None) :
+        self.uuid = uuid
+        self.date_created = date_created
+        self.name = name
+        self.subject_uuid = subject_uuid
+        self.object_uuid = object_uuid
+        self.payload = payload
+        self._blob = None
+        self._subject = None
+        self._object = None
+    pseudo_counter = 0
+    @staticmethod
+    def make_pseudo(date_created, name, subject_uuid, payload) :
+        CachedRelation.pseudo_counter += 1
+        return CachedRelation("pseudo:" + str(CachedRelation.pseudo_counter),
+                              date_created, name, subject_uuid, payload=payload)
+    @property
+    def blob(self) :
+        if self._blob == None :
+            self._blob = models.Blob.get_by_uuid(self.uuid)
+        return self._blob
+    @property
+    def subject(self) :
+        if self._subject == None :
+            self._subject = models.Blob.get_by_uuid(self.subject_uuid)
+        return self._subject
+    @property
+    def object(self) :
+        if self._object == None :
+            self._object = models.Blob.get_by_uuid(self.object_uuid)
+        return self._object
+    def __repr__(self) :
+        return "CachedRelation(uuid=%r,date_created=%r,name=%r,subject_uuid=%r,object_uuid=%r,payload=%r)" \
+            % (self.uuid, self.date_created, self.name, self.subject_uuid, self.object_uuid, self.payload)
+    @staticmethod
+    def get_for_subject(web_id, blob_uuid) :
+        if isinstance(web_id, models.Web) :
+            web_id = web_id.id
+        if isinstance(blob_uuid, models.Blob) :
+            blob_uuid = blob_uuid.uuid
+        q = models.DB.execute("""
+        select rblob.uuid, rblob.date_created, r.relation, r.object_id, oblob.uuid as object_uuid, r.payload
+        from relations as r
+        inner join blobs as rblob on rblob.id=r.blob_id
+        inner join blobs as sblob on sblob.id=r.subject_id
+        left join blobs as oblob on oblob.id=r.object_id
+        where r.web_id=? and sblob.uuid=?""", (web_id, blob_uuid))
+        rels = []
+        for row in q :
+            rels.append(CachedRelation(uuid=row['uuid'],
+                                       date_created=datetime.datetime.utcfromtimestamp(row["date_created"]),
+                                       name=Relation.get_relation_name(row['relation']),
+                                       subject_uuid=blob_uuid,
+                                       object_uuid=row['object_uuid'],
+                                       payload=row['payload']))
+        return rels
+    @staticmethod
+    def get_for_object(web_id, blob_uuid) :
+        if isinstance(web_id, models.Web) :
+            web_id = web_id.id
+        if isinstance(blob_uuid, models.Blob) :
+            blob_uuid = blob_uuid.uuid
+        q = models.DB.execute("""
+        select rblob.uuid, rblob.date_created, r.relation, r.object_id, oblob.uuid as object_uuid, r.payload
+        from relations as r
+        inner join blobs as rblob on rblob.id=r.blob_id
+        inner join blobs as sblob on sblob.id=r.subject_id
+        inner join blobs as oblob on oblob.id=r.object_id
+        where r.web_id=? and oblob.uuid=?""", (web_id, blob_uuid))
+        rels = []
+        for row in q :
+            rels.append(CachedRelation(uuid=row['uuid'],
+                                       date_created=datetime.datetime.utcfromtimestamp(row["date_created"]),
+                                       name=Relation.get_relation_name(row['relation']),
+                                       subject_uuid=blob_uuid,
+                                       object_uuid=row['object_uuid'],
+                                       payload=row['payload']))
+        return rels
+
+def get_inherited_relations(web_id, blob_uuid) :
+    """Returns a list of CachedRelation objects which are inherited by the blob (these are subject relations)."""
     if isinstance(web_id, models.Web) :
         web_id = web_id.id
     if isinstance(blob_uuid, models.Blob) :
         blob_uuid = blob_uuid.uuid
-    q = models.DB.execute("""
-    select r.blob_id, rblob.uuid, r.relation, r.object_id, oblob.uuid as object_uuid, r.payload
-    from relations as r
-    inner join blobs as rblob on rblob.id=r.blob_id
-    inner join blobs as sblob on sblob.id=r.subject_id
-    left join blobs as oblob on oblob.id=r.object_id
-    where r.web_id=? and sblob.uuid=?""", (web_id, blob_uuid))
-    for row in q :
-        rels.append({"uuid" : row['uuid'],
-                     "name" : Relation.get_relation_name(row['relation']),
-                     "subject" : blob_uuid,
-                     "object" : row['object_uuid'],
-                     "payload" : row['payload'],
-                     "subrelations" : get_relations_for(web_id, row["uuid"])})
-    return rels
 
-def get_relations_for_subject(web_id, blob_uuid) :
-    rels = []
-    q = models.DB.execute("""
-    select rblob.uuid as ruuid, oblob.uuid as ouuid
-    from relations as r
-    inner join blobs as rblob on rblob.id=r.blob_id
-    inner join blobs as sblob on sblob.id=r.subject_id
-    left join blobs as oblob on oblob.id=r.object_id
-    where r.web_id=? and sblob.uuid=?""", (web_id, blob_uuid))
-    for row in q :
-        rels.append({"ruuid" : row['ruuid'], "ouuid" : row['ouuid']})
-    return rels
+    def sane_revises(r) :
+        """Enforce arrow of time!"""
+        if r.name != "revises" :
+            return False
+        subject_created = models.Blob.get_created_by_uuid(r.subject_uuid)
+        object_created = models.Blob.get_created_by_uuid(r.object_uuid)
+        return subject_created != None and object_created != None and subject_created > object_created
 
-def get_relations_for_object(web_id, blob_uuid) :
-    rels = []
-    q = models.DB.execute("""
-    select rblob.uuid as ruuid
-    from relations as r
-    inner join blobs as rblob on rblob.id=r.blob_id
-    inner join blobs as oblob on oblob.id=r.object_id
-    where r.web_id=? and oblob.uuid=?""", (web_id, blob_uuid))
-    for row in q :
-        rels.append(row['ruuid'])
-    return rels
+    inher_rels = {}
+    def _get_rels(uuid) :
+        if uuid in inher_rels :
+            return inher_rels[uuid]
+        rels = CachedRelation.get_for_subject(web_id, uuid)
+        # step 1: inherit
+        revs = [r for r in rels if sane_revises(r)]
+        got = {} # uuid -> (Maybe date(revises), r)  (date is none to mean non-inherited)
+        for rev in revs :
+            rrels = _get_rels(rev.object_uuid)
+            for t, r in rrels :
+                if r.uuid in got :
+                    if  got[r.uuid][0] > rev.date_created :
+                        got[r.uuid][0] = rev.date_created
+                else :
+                    got[r.uuid] = [rev.date_created, r]
+        # step 2: provide own
+        for r in rels :
+            got[r.uuid] = [None, r]
+        my_inher_rels = got.values()
+        # step 3: add pseudo-relation (for author list)
+        blob = models.Blob.get_by_uuid(uuid)
+        def make_pseudo(name, value) :
+            return [blob.date_created, CachedRelation.make_pseudo(blob.date_created, name, uuid, value)]
+        my_inher_rels.append(make_pseudo("editor", blob.editor_email))
+        # cache
+        inher_rels[uuid] = my_inher_rels
+        return my_inher_rels
+    # don't need to keep track of which r[0] are None because inherited <=> rel.subject_uuid != blob_uuid
+    return [r[1] for r in _get_rels(blob_uuid)]
 
 @rpc_module("relations")
 class RelationsRPC(RPCServable) :

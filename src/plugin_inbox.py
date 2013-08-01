@@ -33,8 +33,6 @@ class InboxRPC(RPCServable) :
     @rpcmethod
     def get_inbox(self, user, webid) :
         if models.UserWebAccess.can_user_access(user, webid) :
-#            import relations
-#            return dict((i, relations.get_relations_for(webid, i)) for i in Inbox.get_inbox_uuids(webid))
             return Inbox.get_inbox_uuids(user, webid)
         else :
             return None
@@ -48,10 +46,8 @@ class InboxMessage(channel.Message) :
     def appropriate_for(self, user) :
         return self.user.id == user.id
     def serialize(self) :
-        import relations
         return {"type" : "InboxMessage",
                 "args" : {"uuid" : self.blob.uuid,
-#                          "relations" : relations.get_relations_for(self.web.id, self.blob.uuid) if self.adding else {},
                           "web_id" : self.web.id,
                           "adding" : self.adding}}
 

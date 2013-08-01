@@ -3,6 +3,8 @@
 --
 -- Create the database for metaview.
 
+pragma foreign_keys = ON;
+
 create table webs (
   id integer primary key,
   web_name text not null,

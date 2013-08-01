@@ -99,26 +99,31 @@ class BlobsRPC(RPCServable) :
                "date_created" : httputil.format_timestamp(blob.date_created),
                "editor_email" : blob.editor_email,
                "content_type" : blob.content_type}
+        if blob.content_type.startswith("mime:text/") :
+            ret["summary"] = self.blob_summary(blob)
         if with_content :
             ret["content"] = blob.content.stuff
         return ret
+    def blob_summary(self, blob) :
+        content = blob.content.stuff
+        summary = content[:min(len(content), 160)]
+        return " ".join(summary.split())
+    def rel_as_dict(self, rel) :
+        return {"uuid" : None if rel.uuid.startswith("pseudo:") else rel.uuid,
+                "date_created" : httputil.format_timestamp(rel.date_created),
+                "name" : rel.name,
+                "subject" : rel.subject_uuid,
+                "object" : rel.object_uuid,
+                "payload" : rel.payload}
     @rpcmethod
     def get_blob_metadata(self, user, web_id, uuids) :
-        seen = set()
-        to_process = list(uuids)
         blobs = []
-        while to_process :
-            uuid = to_process.pop()
-            if uuid and uuid not in seen :
-                seen.add(uuid)
-                b = models.Blob.get_by_uuid(uuid)
-                if b != None :
-                    with_content = b.content_type.startswith("relation:")
-                    blobs.append(self.blob_as_dict(b, with_content=with_content))
-                    for rel in relations.get_relations_for_subject(web_id, uuid) :
-                        to_process.append(rel['ruuid'])
-                        to_process.append(rel['ouuid'])
-                    for rel in relations.get_relations_for_object(web_id, uuid) :
-                        to_process.append(rel)
+        for uuid in set(uuids) :
+            b = models.Blob.get_by_uuid(uuid)
+            if b != None :
+                srels = relations.get_inherited_relations(web_id, uuid)
+                orels = relations.CachedRelation.get_for_object(web_id, uuid)
+                blobs.append({"blob" : self.blob_as_dict(b),
+                              "srels" : [self.rel_as_dict(r) for r in srels],
+                              "orels" : [self.rel_as_dict(r) for r in orels]})
         return blobs
-
