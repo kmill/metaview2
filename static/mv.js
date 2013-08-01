@@ -460,7 +460,7 @@ var mv = (function (mv, $) {
     },
     // Gets the object for the current web
     getCurrentWeb : function () {
-      return this.knownWebs[this.currentWebId];
+      return this.knownWebs && this.knownWebs[this.currentWebId];
     },
     // Set the current web
     setCurrentWeb : function (web_id) {
@@ -472,7 +472,7 @@ var mv = (function (mv, $) {
         throw new TypeError("Not a web id");
       }
       this.currentWebId = web_id;
-      mv.rpc("webs", "set_default_web", {"web_id" : web_id});
+      mv.rpc("webs", "set_default_web", {"web_id" : +web_id});
       this.trigger("selected");
     },
     // Add a web
@@ -702,7 +702,7 @@ var mv = (function (mv, $) {
       var knownWebBlobs = this.knownBlobs[web_id];
 
       uuids = _.filter(uuids, function (uuid) { return !_.has(knownWebBlobs, uuid); });
-      mv.rpc("blobs", "get_blob_metadata", {"web_id" : web_id, "uuids" : uuids},
+      mv.rpc("blobs", "get_blob_metadata", {"web_id" : +web_id, "uuids" : uuids},
              function (blobs) {
                // incorporate new data
                _.each(blobs, function (meta) {
@@ -792,7 +792,18 @@ var mv = (function (mv, $) {
         that.getBlob(web_id, uuid, _callback, true);
       });
       that.pullBlobs();
-    }
+    },
+		createBlob : function (web_id, content, mime_type, title, tags, callback) {
+			mv.rpc("blobs", "create_blob", {web_id : +web_id,
+																			content : content,
+																			mime_type : mime_type,
+																			title : title,
+																			tags : tags
+																		 },
+						 function (uuid) {
+							 callback(uuid);
+						 });						 
+		}
   });
 
   // The actual blob model
@@ -947,7 +958,7 @@ var mv = (function (mv, $) {
     },
     pullInbox : function (webid, callback) {
       var self = this;
-      mv.rpc("inbox", "get_inbox", {"webid" : webid},
+      mv.rpc("inbox", "get_inbox", {"webid" : +webid},
              function (uuids) {
                if (uuids !== null) {
                  self.currentInboxes[webid] = uuids;

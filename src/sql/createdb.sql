@@ -94,4 +94,4 @@ create table plugin_inbox (
 
 
 --- testing
-insert into users (email) values ("kmill31415@gmail.com");
+insert into users (email, first_name, last_name) values ("kmill31415@gmail.com", "Kyle", "Miller");

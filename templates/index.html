@@ -4,14 +4,20 @@
 <meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
 <title>{{ handler.settings["app_title"] }}</title>
 <link rel="stylesheet" href="{{ static_url("style.css") }}" type="text/css" />
+<!--<script type="text/javascript" src="{{ static_url("jquery-ui-1.10.3.custom/js/jquery-1.9.1.js") }}"></script>
+<script type="text/javascript" src="{{ static_url("jquery-ui-1.10.3.custom/js/jquery-ui-1.10.3.custom.js") }}"></script>
+<link rel="stylesheet" href="{{ static_url("jquery-ui-1.10.3.custom/css/ui-lightness/jquery-ui-1.10.3.custom.css") }}"/>-->
+
 <script type="text/javascript" src="{{ static_url("jquery-ui-1.10.3/jquery-1.9.1.js") }}"></script>
 <script type="text/javascript" src="{{ static_url("jquery-ui-1.10.3/ui/jquery-ui.js") }}"></script>
+<link rel="stylesheet" href="{{ static_url("jquery-ui-1.10.3/themes/base/jquery-ui.css") }}"/>
 <script type="text/javascript" src="{{ static_url("underscore-min.js") }}"></script>
 <script type="text/javascript" src="{{ static_url("mv.js") }}"></script>
 <script type="text/javascript" src="{{ static_url("mv-ui.js") }}"></script>
 <script type="text/javascript" src="{{ static_url("codemirror-3.15/lib/codemirror.js") }}"></script>
-<link rel="stylesheet" href="{{ static_url("codemirror-3.15/lib/codemirror.css") }}"></script>
-
+<link rel="stylesheet" href="{{ static_url("codemirror-3.15/lib/codemirror.css") }}"/>
+<script type="text/javascript" src="{{ static_url("tagit/js/tag-it.js") }}"></script>
+<link rel="stylesheet" href="{{ static_url("tagit/css/jquery.tagit.css") }}"/>
 <link type="text/css" rel="stylesheet" href="{{ static_url("jquery.dropdown.css") }}" />
 <script type="text/javascript" src="{{ static_url("jquery.dropdown.js") }}"></script>
 
@@ -32,6 +38,7 @@
 <div class="blob">
   <div class="blob-header">
     <div class="blob-header-left">
+			<span class="blob-authors"></span>
       <%- data.created %>
     </div>
     <div class="blob-header-right">
@@ -46,11 +53,21 @@
     <div class="blob-content">
       <p><a href="<%= data.rawUrl %>" target="_blank"><%- data.titleish %></a></p>
     </div>
+		<input class="blob-tags" type="text"/>
     <div class="blob-footer">
       <span user-tooltip="<%- data.editor %>"><%- data.editor %></span> / <%= data.uuid %> / <%- data.content_type %>
     </div>
   </div>
 </div>
+</script>
+
+<script type="text/template" template-name="compose-blob">
+	<div class="blob-edit-window">
+		<input class="blob-edit-title" type="text" name="title" placeholder="Title (optional)"/>
+		<div class="blob-edit"></div>
+		<input class="blob-tags" type="text"/>
+		<input class="blob-save-button" type="submit" name="save" value="Save"/>
+	</div>
 </script>
 
 <script type="text/template" template-name="web-config">
@@ -79,10 +96,20 @@
 </head>
 <body>
 
+<div id="app-loading" style="position: absolute; left: 0; right: 0; width: 100%; height: 100%; background: #fff;; z-index: 9999;">
+	<div style="margin-top: 10em; text-align: center; font-family: sans-serif; font-size: 12pt;">
+		Loading...
+	</div>
+</div>
+
 <div id="body">
   <div id="header">
     <div class="header_left">
       Web: <span id="web-selector">(no web)</span>
+			<span id="web-actions">
+				| <a href="#" id="view-inbox">Inbox</a>
+				| <a href="#" id="compose">Compose</a>
+			</span>
     </div>
     <div class="header_right">
       <form id="fileupload" method="post" enctype="multipart/form-data" action="/upload">

@@ -57,12 +57,26 @@ var mvui = (function (mvui) {
                            });
         return false;
       });
+			
+			$('#web-actions').toggle(mv.WebModel.getCurrentWeb() !== undefined);
+
+			$('#view-inbox').click(function (e) {
+				e.preventDefault();
+				window.location = mv.FragmentModel.makeFragment({web : mv.WebModel.getCurrentWeb().name});
+				return false;
+			});
+			$('#compose').click(function (e) {
+				e.preventDefault();
+				window.location = mv.FragmentModel.makeFragment({web : mv.WebModel.getCurrentWeb().name, action : 'compose'});
+				return false;
+			});
     },
     renderSkeleton : function () {
       this.el.html('<a href="#" data-dropdown="#dropdown-webs"><span data-webname>(no web)</span></a>');
     },
     redraw : function () {
       this.checkIfDestroyed();
+			$('#web-actions').toggle(mv.WebModel.getCurrentWeb() !== undefined);
       var that = this;
       mv.WebModel.getWebs(function (webs) {
         console.log("redraw");
@@ -81,7 +95,7 @@ var mvui = (function (mvui) {
         sel.empty();
         _.each(webs, function (web) {
           var viewFrag = mv.FragmentModel.makeFragment({web : web.name});
-          var editFrag = mv.FragmentModel.makeFragment({web : web.name, config : 'web'});
+          var editFrag = mv.FragmentModel.makeFragment({web : web.name, action : 'config'});
           var opt = $('<a/>').attr("href", viewFrag).text(web.name);
           var edit = $('<a/>').attr('href', editFrag).addClass("webEditButton").text("edit");
           var li = $('<li/>').append(edit).append(opt);
@@ -150,6 +164,7 @@ var mvui = (function (mvui) {
       var iel = $('<div class="inbox"/>').hide().appendTo(this.el);
       this.inboxView = _.build(mvui._InboxView, iel, this.web);
       this.blobView = undefined;
+			this.composeView = undefined;
       this.configView = $('<div class="web-config"/>').appendTo(this.el);
 
       mv.FragmentModel.on("updated", _.im(this, 'updateViewByFragment'));
@@ -162,7 +177,9 @@ var mvui = (function (mvui) {
       }
       if (d['blob'] !== undefined) {
         this.showBlob(d['blob']);
-      } else if (d['config'] === 'web') {
+			} else if (d['action'] === 'compose') {
+				this.showCompose();
+      } else if (d['action'] === 'config') {
         this.showConfig();
       } else {
         this.showInbox();
@@ -171,6 +188,7 @@ var mvui = (function (mvui) {
     showConfig : function () {
       var that = this;
       if (this.blobView) { this.blobContainer.hide(); }
+			if (this.composeView) this.composeView.hide();
       this.inboxView.hide();
       this.configView.show();
       this.configView.empty().html(mvui.render("web-config", {
@@ -240,15 +258,15 @@ var mvui = (function (mvui) {
 
     },
     showInbox : function () {
-      if (this.blobView) {
-        this.blobContainer.hide();
-      }
+      if (this.blobView) this.blobContainer.hide();
+			if (this.composeView) this.composeView.hide();
       this.configView.hide();
       this.inboxView.show();
     },
     showBlob : function (uuid) {
       this.inboxView.hide();
       this.configView.hide();
+			if (this.composeView) this.composeView.hide();
       if (this.blobView === undefined || this.blobView.uuid !== uuid) {
         this.el.children(".web-blob").remove();
         if (this.blobView) {
@@ -258,7 +276,17 @@ var mvui = (function (mvui) {
         this.blobView = _.build(mvui._BlobView, this.blobContainer, this.web, uuid);
       }
       this.blobContainer.show();
-    }
+    },
+		showCompose : function () {
+			this.inboxView.hide();
+      this.configView.hide();
+			if (this.blobView) this.blobView.hide();
+			if (this.composeView === undefined) {
+				this.composeContainer = $('<div class="web-blob-compose"/>').appendTo(this.el);
+				this.composeView = _.build(mvui._BlobEditView, this.composeContainer, this.web);
+			}
+			this.composeView.show();
+		}
   });
 
   mvui._BlobView = _.create(_View, {
@@ -293,6 +321,18 @@ var mvui = (function (mvui) {
             rawUrl : blob.getUrl()
           };
           dest.html(mvui.render("blob-generic", data));
+
+					mv.UserModel.getUsers(function (users) {
+						_.each(blob.getAuthors(that.web.id), function (author) {
+							var avatar = $('<div class="blob-author-avatar"/>').attr('user-tooltip', author);
+							var user = users[author];
+							if (user !== undefined) {
+								avatar.append($('<img/>').attr('src', user.avatarUrl()));
+							}
+							dest.find('.blob-authors').append(avatar);
+						});
+					});
+
           if (blob.content_type.slice(0,"mime:text/".length) === "mime:text/") {
             dest.find('.blob-content').text("Loading...");
             blob.getContent(function (c) {
@@ -305,6 +345,23 @@ var mvui = (function (mvui) {
           _.each(blob.srels, function (rel) {
             dest.append($("<p/>").text(rel.uuid + ": " + rel.subject + " " + rel.name + " " + (rel.object || rel.payload) + " " + (rel.isInherited(blob) ? " inherited" : "")));
           });
+					var tags_el = dest.find('.blob-tags');
+					tags_el.tagit({
+						availableTags : ["research", "fun", "etc"],
+						autocomplete : {delay:250, minLength:1},
+						removeConfirmation : true,
+						allowDuplicates : false,
+						allowSpaces : true,
+						placeholderText : "Add tags",
+						singleField : true
+					});
+					var tags = _.pluck(_.where(blob.srels, {name : 'tag'}), 'payload');
+					tags.sort();
+					_.each(tags, function(tag) {
+						if (tag) {
+							tags_el.tagit('createTag', tag);
+						}
+					});
         }
       )();
       mv.BlobModel.getBlob(this.web.id, this.uuid, function (blob) {
@@ -312,6 +369,62 @@ var mvui = (function (mvui) {
       this.el.empty().append(wrapper);
     }
   });
+
+	mvui._BlobEditView = _.create(_View, {
+		_init : function (el, web) {
+			_View._init.call(this, el);
+			this.web = web;
+			this.render();
+		},
+		destroy : function() {
+			if (this.editor) {
+				this.editor.clear();
+			}
+			_View.destroy.call(this);
+		},
+		render : function () {
+			this.el.append(mvui.render('compose-blob', {
+				
+			}));
+			var that = this;
+			that.el.find('.blob-save-button').prop('disabled', true);
+			_.delay(function () {
+				that.el.find('.blob-save-button').prop('disabled', false);
+				that.editor = CodeMirror(that.el.find(".blob-edit")[0], {
+					lineWrapping : true,
+					viewportMargin : Infinity,
+					lineNumbers : true
+//					placeholder : "Content"
+				});
+			});
+			this.el.find('.blob-tags').tagit({
+				availableTags : ["research", "fun", "etc"],
+				autocomplete : {delay:250, minLength:1},
+				removeConfirmation : true,
+				allowDuplicates : true,
+				allowSpaces : true,
+				placeholderText : "Add tags",
+				singleField : true
+			});
+			this.el.find('.blob-save-button').on('click', function (e) {
+				e.preventDefault();
+				that.el.find('.blob-save-button').prop('disabled', true);
+				var content = that.editor.getValue();
+				var title = that.el.find('.blob-edit-title').val() || undefined;
+				var tags = that.el.find('.blob-tags').tagit('assignedTags');
+				mv.BlobModel.createBlob(that.web.id, content, "text/metaview-email-style", title, tags,
+															 function (uuid) {
+																 if (uuid) {
+																	 window.location = that.nextUrl || mv.FragmentModel.makeFragment({web : that.web.name, blob : uuid});
+																 } else {
+																	 // TODO deal with errors better!
+																	 that.el.find('.blob-save-button').prop('disabled', false);
+																 }
+															 });
+				return false;
+			});
+		}
+	});
 
   mvui._InboxView = _.create(_View, {
     _init : function (el, web) {
@@ -548,5 +661,6 @@ jQuery(function ($) {
     $("#fileupload").find(":file").val('');
   });
 
-
+	// Remove loading screen
+	$("#app-loading").hide();
 });

@@ -117,6 +117,8 @@ class BlobsRPC(RPCServable) :
                 "payload" : rel.payload}
     @rpcmethod
     def get_blob_metadata(self, user, web_id, uuids) :
+        if web_id not in [w.id for w in models.UserWebAccess.get_for_user(user)] :
+            raise Exception("no such web") # makes sure has explicit access
         blobs = []
         for uuid in set(uuids) :
             b = models.Blob.get_by_uuid(uuid)
@@ -127,3 +129,20 @@ class BlobsRPC(RPCServable) :
                               "srels" : [self.rel_as_dict(r) for r in srels],
                               "orels" : [self.rel_as_dict(r) for r in orels]})
         return blobs
+    @rpcmethod
+    def create_blob(self, user, web_id, content, mime_type=None, title=None, tags=[]) :
+        if web_id not in [w.id for w in models.UserWebAccess.get_for_user(user)] :
+            raise Exception("no such web") # makes sure has explicit access
+        web = models.Web.get_by_id(web_id)
+        content_type = "mime:" + (mime_type or "plain/text")
+        c = models.Content.get_by_stuff(str(content))
+        b = models.Blob.make_blob(user, content_type, c)
+        models.WebBlobAccess.add_for_blob(web, b)
+        if title :
+            relations.BinaryRelation.make(web, user, "title", b, title)
+        for tag in set([t.strip() for t in tags]) :
+            if tag :
+                relations.BinaryRelation.make(web, user, "tag", b, tag)
+        self.channels.broadcast([channel.NewBlobMessage(b)])
+        return b.uuid
+

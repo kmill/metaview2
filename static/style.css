@@ -71,27 +71,43 @@ div.clear {
 /* blobs */
 div.blob {
     border-style: solid;
-    border-width: 1px;
-    border-color: $bbd;
+    border-width: 1px 0 0 0;
+    border-color: #bbd;
     padding: 0;
     margin-bottom: 1em;
 }
 div.blob-header {
-    padding: 1px 1em 2px 1em;
-    font-size: 80%;
-    background: #ddf;
+    padding: 0.5em 0.5em 2px 0.75em;
     font-family: "helvetica", "arial", "sans-serif";
-    border-style: solid;
-    border-width: 0px 0 1px 0;
-    border-color: #bbd;
 }
+
+.blob-author-avatar {
+    display: inline-block;
+		margin-right: 1px;
+    width: 27px;
+    height: 27px;
+    border-width: 1px;
+    border-style: solid;
+    border-color: #bbd;
+    padding: 0;
+    vertical-align: middle;
+}
+.blob-author-avatar img {
+    width: 27px;
+    height: 27px;
+    margin: 0;
+}
+
+
 div.blob-body {
-    padding: 0.5em 0.75em 0 0.75em;
+		margin-left: 0.75em;
+    padding: 0em 0.75em 0 30px;
+    max-width: 786px;
 }
 div.blob-footer {
     padding: 0 0 1px 0;
     font-size: 80%;
-    color: #ccc;
+    color: #999;
     font-family: "helvetica", "arial", "sans-serif";
 }
 div.blob-header-left {
@@ -103,6 +119,38 @@ div.blob-header-right {
 div.blob-header span.blob-actions a {
     color: #00D;
     margin-left: 0.5em;
+}
+
+/* editor */
+
+div.blob-edit-window {
+		max-width: 786px;
+}
+
+div.CodeMirror {
+		height: auto;
+/*		min-height: 5em;*/
+
+		border-style: solid;
+		border-width: 1px;
+		border-color: #ccc;
+		border-radius: 4px;
+}
+div.CodeMirror-scroll {
+		overflow-x: auto;
+		overflow-y: hidden;
+}
+
+div.blob-edit {
+
+}
+
+div.blob-edit-window input.blob-edit-title {
+		display: block;
+		width: 100%;
+		font-size: 150%;
+		border-style: none;
+		margin-bottom: 0.5em;
 }
 
 /* avatars */
@@ -125,14 +173,14 @@ div.user-avatar img {
 
 /* user tooltip */
 div.user-tooltip {
-    width: 300px;
+/*    width: 300px;*/
     height: 80px;
     background: #fff;
     padding: 1em;
-	  box-shadow: 0px 5px 10px rgba(0, 0, 0, .2);
+/*	  box-shadow: 0px 5px 10px rgba(0, 0, 0, .2);
     border-width: 1px;
     border-style: solid;
-    border-color: #bbd;
+    border-color: #bbd;*/
 }
 div.user-tooltip-avatar {
     display: inline-block;
