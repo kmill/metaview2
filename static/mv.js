@@ -1014,7 +1014,7 @@ var mv = (function (mv, $) {
     var hs = h%12 == 0 ? 12 : h%12;
     var ampm = h < 12 ? "am" : "pm";
     var time = hs + ":" + pad2(date.getMinutes()) + " " + ampm;
-    var cptime = showTime ? " " + time : "";
+    var cptime = showTime ? ", " + time : "";
     if (date.getFullYear()  == now.getFullYear()) {
       if (date.getMonth() == now.getMonth()
           && (date.getDate() == now.getDate()
