@@ -363,12 +363,28 @@ var mvui = (function (mvui) {
 					}
 					var editbutton = dest.find('.blob-edit-button');
 					editbutton.attr('href', mv.FragmentModel.makeFragment({web : that.web.name, blob : blob.uuid, action : "compose"}));
+					var deletebutton = dest.find('.blob-delete-button');
+					deletebutton.on("click", function (e) {
+						e.preventDefault();
+						mv.BlobModel.delete(that.web.id, blob.uuid, blob.uuid);
+						return false;
+					});
 					var relarea = dest.find('.blob-relations-holder');
 					var relcontent = dest.find('.blob-relations');
 					var shownAny = false;
 					relarea.hide();
-          _.each(_.sortBy(blob.srels, function (rel) { return rel.date_created.getTime(); }), function (rel) {
-						if (rel.uuid !== null && !rel.deleted && rel.name != "deletes" && !(rel.name == "revises" && rel.isInherited(blob))) {
+					function fillRelArea(showAll) {
+						relcontent.empty();
+						var skippedAny = false;
+						_.each(_.sortBy(blob.srels, function (rel) { return rel.date_created.getTime(); }), function (rel) {
+							if (!showAll && rel.uuid === null) {
+								skippedAny = true;
+								return;
+							}
+							if (!showAll && (rel.deleted || rel.name === "deletes" || (rel.name == "revises" && rel.isInherited(blob)))) {
+								skippedAny = true;
+								return;
+							}
 							shownAny = true;
 							var el = $('<p/>');
 							el.append($('<a/>').append($("<strong/>").text(rel.name)).attr("href", mv.FragmentModel.makeFragment({web : that.web.name, blob : rel.uuid})));
@@ -380,21 +396,43 @@ var mvui = (function (mvui) {
 							if (rel.isInherited(blob)) {
 								el.append(" <em>(inherited)</em>");
 							}
+							if (rel.deleted) {
+								el.append(" <em>(deleted)</em>");
+							}
+							if (rel.uuid === null) {
+								el.append(" <em>(pseudo)</em>");
+							}
+							if (!rel.deleted && rel.uuid !== null) {
+								var deletebutton = $('<a href="#" class="relation-delete-button">delete</a>');
+								deletebutton.on("click", function (e) {
+									e.preventDefault();
+									mv.BlobModel.delete(that.web.id, blob.uuid, rel.uuid);
+									return false;
+								});
+								el.append(" ").append(deletebutton);
+							}
 							relcontent.append(el);
+						});
+						_.each(_.sortBy(blob.orels, function (rel) { return rel.date_created.getTime(); }), function (rel) {
+							shownAny = true;
+  						var el = $('<p/>')
+	  								.append($('<a/>').text("blob").attr("href", mv.FragmentModel.makeFragment({web : that.web.name, blob : rel.subject})))
+										.append(' ')
+   	 								.append($('<a/>').append($("<strong/>").text(rel.name)).attr("href", mv.FragmentModel.makeFragment({web : that.web.name, blob : rel.uuid})))
+										.append(" <em>this</em>");
+							relcontent.append(el);
+						});
+						if (!shownAny) {
+							relcontent.append("<p>No relations.</p>");
 						}
-          });
-          _.each(_.sortBy(blob.orels, function (rel) { return rel.date_created.getTime(); }), function (rel) {
-						shownAny = true;
-  					var el = $('<p/>')
-	  							.append($('<a/>').text("blob").attr("href", mv.FragmentModel.makeFragment({web : that.web.name, blob : rel.subject})))
-									.append(' ')
-   	 							.append($('<a/>').append($("<strong/>").text(rel.name)).attr("href", mv.FragmentModel.makeFragment({web : that.web.name, blob : rel.uuid})))
-									.append(" <em>this</em>");
-						relcontent.append(el);
-          });
-					if (!shownAny) {
-						relcontent.append("<p>No relations.</p>");
+						relarea.find('.blob-relations-show-more').toggle(skippedAny);
 					}
+					fillRelArea(false);
+					relarea.find('.blob-relations-show-more a').on("click", function (e) {
+						e.preventDefault();
+						fillRelArea(true);
+						return false;
+					});
 					var rel_toggler = dest.find(".blob-rel-toggler");
 					rel_toggler.text("relations");
 					var rel_expand = true;

@@ -192,3 +192,11 @@ class BlobsRPC(RPCServable) :
                 return True
         relations.BinaryRelation.make(web, user, "tag", b, tag)
         return True
+    @rpcmethod
+    def delete(self, user, web_id, deletor, deleted) :
+        if web_id not in [w.id for w in models.UserWebAccess.get_for_user(user)] :
+            raise Exception("no such web") # makes sure has explicit access
+        web = models.Web.get_by_id(web_id)
+        b1 = models.Blob.get_by_uuid(deletor)
+        b2 = models.Blob.get_by_uuid(deleted)
+        relations.BinaryRelation.make(web, user, "deletes", b1, b2)

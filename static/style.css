@@ -127,6 +127,18 @@ div.blob-relations-holder {
 		margin-right: 6em;
 }
 
+div.blob-relations-show-more {
+		float: right;
+		clear: none;
+		padding: 0.7em;
+		font-size: 80%;
+}
+
+.relation-delete-button {
+		font-size: 80%;
+		margin-left: 2em;
+}
+
 div.blob-relations {
 		padding: 5px 0.75em 5px 0.75em;
 		border-bottom-left-radius: 4px;

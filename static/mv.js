@@ -816,6 +816,11 @@ var mv = (function (mv, $) {
 			mv.rpc("blobs", "remove_tag", {web_id : +web_id,
 																		 uuid : uuid,
 																		 tag : tag});
+		},
+		delete : function(web_id, deletor, deleted) {
+			mv.rpc("blobs", "delete", {web_id : +web_id,
+																 deletor : deletor,
+																 deleted : deleted});
 		}
   });
 
